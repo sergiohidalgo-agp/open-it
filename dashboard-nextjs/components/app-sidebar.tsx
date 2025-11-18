@@ -14,6 +14,7 @@ import {
   FileText,
   Bell,
   BarChart3,
+  Cloud,
 } from "lucide-react"
 
 import {
@@ -44,6 +45,11 @@ const navItems = [
     title: "Dashboard",
     icon: LayoutDashboard,
     url: "/",
+  },
+  {
+    title: "Recursos Azure",
+    icon: Cloud,
+    url: "/azure-resources",
   },
   {
     title: "Servidores",
@@ -204,7 +210,16 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   Notificaciones
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem>Cerrar Sesión</DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    localStorage.removeItem("isAuthenticated")
+                    localStorage.removeItem("userEmail")
+                    localStorage.removeItem("loginMethod")
+                    window.location.href = "/login"
+                  }}
+                >
+                  Cerrar Sesión
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </SidebarMenuItem>
