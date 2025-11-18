@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Search, Download, RefreshCw, Server, Database, HardDrive, Network } from "lucide-react"
+import { Search, Download, RefreshCw } from "lucide-react"
 import { AzureServiceIcon } from "@/components/azure-service-icon"
 import { TbBrandAzure } from "react-icons/tb"
 
@@ -171,66 +171,6 @@ export default function AzureResourcesPage() {
 
   return (
     <div className="flex flex-1 flex-col gap-4">
-      {/* Header con métricas */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Recursos</CardTitle>
-            <TbBrandAzure className="h-4 w-4 text-[#0078D4]" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{filteredResources.length}</div>
-            <p className="text-xs text-muted-foreground">
-              de {mockAzureResources.length} recursos
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Costo Mensual</CardTitle>
-            <Database className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">${totalCost.toFixed(2)}</div>
-            <p className="text-xs text-muted-foreground">
-              recursos filtrados
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">En Ejecución</CardTitle>
-            <Server className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {filteredResources.filter(r => r.status === "Running").length}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              recursos activos
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Locaciones</CardTitle>
-            <Network className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {new Set(filteredResources.map(r => r.location)).size}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              regiones Azure
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Filtros y búsqueda */}
       <Card>
         <CardHeader>
           <CardTitle>Recursos de Azure</CardTitle>
