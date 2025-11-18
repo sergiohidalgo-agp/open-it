@@ -1,182 +1,114 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Search, Download, RefreshCw } from "lucide-react"
+import { Search, Download, RefreshCw, ExternalLink } from "lucide-react"
 import { AzureServiceIcon } from "@/components/azure-service-icon"
 import { TbBrandAzure } from "react-icons/tb"
+import type { AzureResource, AzureResourcesResponse, ResourceStatus } from "@/lib/types/azure"
 
-// Mock data de recursos Azure
-const mockAzureResources = [
-  {
-    id: "1",
-    name: "srv-web-prod-01",
-    type: "Virtual Machine",
-    resourceGroup: "rg-production",
-    location: "East US",
-    status: "Running",
-    subscription: "Production",
-    tags: ["web", "production"],
-    cost: "$245.50",
-  },
-  {
-    id: "2",
-    name: "sql-db-main",
-    type: "SQL Database",
-    resourceGroup: "rg-databases",
-    location: "East US",
-    status: "Running",
-    subscription: "Production",
-    tags: ["database", "production"],
-    cost: "$189.00",
-  },
-  {
-    id: "3",
-    name: "storage-backup-01",
-    type: "Storage Account",
-    resourceGroup: "rg-storage",
-    location: "West US",
-    status: "Available",
-    subscription: "Backup",
-    tags: ["backup", "storage"],
-    cost: "$45.30",
-  },
-  {
-    id: "4",
-    name: "vnet-main",
-    type: "Virtual Network",
-    resourceGroup: "rg-network",
-    location: "East US",
-    status: "Available",
-    subscription: "Infrastructure",
-    tags: ["network", "core"],
-    cost: "$12.00",
-  },
-  {
-    id: "5",
-    name: "kv-secrets-prod",
-    type: "Key Vault",
-    resourceGroup: "rg-security",
-    location: "East US",
-    status: "Available",
-    subscription: "Security",
-    tags: ["security", "secrets"],
-    cost: "$8.50",
-  },
-  {
-    id: "6",
-    name: "app-service-api",
-    type: "App Service",
-    resourceGroup: "rg-production",
-    location: "East US",
-    status: "Running",
-    subscription: "Production",
-    tags: ["api", "production"],
-    cost: "$156.00",
-  },
-  {
-    id: "7",
-    name: "srv-app-dev-01",
-    type: "Virtual Machine",
-    resourceGroup: "rg-development",
-    location: "Central US",
-    status: "Stopped",
-    subscription: "Development",
-    tags: ["app", "development"],
-    cost: "$0.00",
-  },
-  {
-    id: "8",
-    name: "cosmos-db-prod",
-    type: "Cosmos DB",
-    resourceGroup: "rg-databases",
-    location: "East US",
-    status: "Running",
-    subscription: "Production",
-    tags: ["nosql", "production"],
-    cost: "$312.75",
-  },
-  {
-    id: "9",
-    name: "cdn-frontend",
-    type: "CDN Profile",
-    resourceGroup: "rg-production",
-    location: "Global",
-    status: "Running",
-    subscription: "Production",
-    tags: ["cdn", "frontend"],
-    cost: "$67.20",
-  },
-  {
-    id: "10",
-    name: "lb-main-prod",
-    type: "Load Balancer",
-    resourceGroup: "rg-network",
-    location: "East US",
-    status: "Available",
-    subscription: "Production",
-    tags: ["network", "loadbalancer"],
-    cost: "$34.50",
-  },
-]
-
-
-const getStatusVariant = (status: string): "default" | "secondary" | "destructive" => {
+const getStatusVariant = (status: ResourceStatus): "default" | "secondary" | "destructive" => {
   switch (status) {
-    case "Running":
+    case "running":
       return "default"
-    case "Available":
+    case "available":
       return "default"
-    case "Stopped":
+    case "stopped":
       return "secondary"
+    case "failed":
+      return "destructive"
     default:
       return "secondary"
   }
 }
 
 export default function AzureResourcesPage() {
+  const [resources, setResources] = useState<AzureResource[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null)
+
   const [searchQuery, setSearchQuery] = useState("")
   const [resourceTypeFilter, setResourceTypeFilter] = useState("all")
   const [subscriptionFilter, setSubscriptionFilter] = useState("all")
   const [statusFilter, setStatusFilter] = useState("all")
   const [locationFilter, setLocationFilter] = useState("all")
+  const [environmentFilter, setEnvironmentFilter] = useState("all")
+
+  // Cargar recursos desde la API
+  useEffect(() => {
+    fetchResources()
+  }, [])
+
+  const fetchResources = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+
+      const response = await fetch('/api/azure/resources')
+      const data: AzureResourcesResponse = await response.json()
+
+      if (data.success) {
+        setResources(data.data)
+        setLastUpdated(data.metadata?.lastUpdated || null)
+      } else {
+        setError(data.error || 'Error al cargar recursos')
+      }
+    } catch (err) {
+      setError('Error de conexión al cargar recursos')
+      console.error('Error fetching resources:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   // Filtrar recursos
-  const filteredResources = mockAzureResources.filter((resource) => {
+  const filteredResources = resources.filter((resource) => {
     const matchesSearch = resource.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       resource.resourceGroup.toLowerCase().includes(searchQuery.toLowerCase())
     const matchesType = resourceTypeFilter === "all" || resource.type === resourceTypeFilter
     const matchesSubscription = subscriptionFilter === "all" || resource.subscription === subscriptionFilter
     const matchesStatus = statusFilter === "all" || resource.status === statusFilter
     const matchesLocation = locationFilter === "all" || resource.location === locationFilter
+    const matchesEnvironment = environmentFilter === "all" || resource.environment === environmentFilter
 
-    return matchesSearch && matchesType && matchesSubscription && matchesStatus && matchesLocation
+    return matchesSearch && matchesType && matchesSubscription && matchesStatus && matchesLocation && matchesEnvironment
   })
 
   // Obtener valores únicos para filtros
-  const uniqueTypes = Array.from(new Set(mockAzureResources.map(r => r.type)))
-  const uniqueSubscriptions = Array.from(new Set(mockAzureResources.map(r => r.subscription)))
-  const uniqueStatuses = Array.from(new Set(mockAzureResources.map(r => r.status)))
-  const uniqueLocations = Array.from(new Set(mockAzureResources.map(r => r.location)))
-
-  // Calcular totales
-  const totalCost = filteredResources.reduce((sum, r) => {
-    return sum + parseFloat(r.cost.replace('$', '').replace(',', ''))
-  }, 0)
+  const uniqueTypes = Array.from(new Set(resources.map(r => r.type)))
+  const uniqueSubscriptions = Array.from(new Set(resources.map(r => r.subscription)))
+  const uniqueStatuses = Array.from(new Set(resources.map(r => r.status)))
+  const uniqueLocations = Array.from(new Set(resources.map(r => r.location)))
+  const uniqueEnvironments = Array.from(new Set(resources.map(r => r.environment)))
 
   return (
     <div className="flex flex-1 flex-col gap-4">
       <Card>
         <CardHeader>
-          <CardTitle>Recursos de Azure</CardTitle>
-          <CardDescription>
-            Gestiona y visualiza todos tus recursos en la nube de Azure
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Recursos de Azure</CardTitle>
+              <CardDescription>
+                Gestiona y visualiza todos tus recursos en la nube de Azure
+                {lastUpdated && (
+                  <span className="block text-xs mt-1">
+                    Última actualización: {new Date(lastUpdated).toLocaleString('es-CL')}
+                  </span>
+                )}
+              </CardDescription>
+            </div>
+            {loading && (
+              <Badge variant="outline" className="animate-pulse">
+                Cargando...
+              </Badge>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
@@ -192,19 +124,31 @@ export default function AzureResourcesPage() {
                 />
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" size="sm">
-                  <RefreshCw className="h-4 w-4 mr-2" />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={fetchResources}
+                  disabled={loading}
+                >
+                  <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
                   Actualizar
                 </Button>
-                <Button variant="outline" size="sm">
+                <Button variant="outline" size="sm" disabled={loading}>
                   <Download className="h-4 w-4 mr-2" />
                   Exportar
                 </Button>
               </div>
             </div>
 
+            {/* Mensaje de error */}
+            {error && (
+              <div className="p-4 border border-red-200 bg-red-50 rounded-md">
+                <p className="text-sm text-red-800">{error}</p>
+              </div>
+            )}
+
             {/* Filtros */}
-            <div className="grid gap-4 md:grid-cols-4">
+            <div className="grid gap-4 md:grid-cols-5">
               <Select value={resourceTypeFilter} onValueChange={setResourceTypeFilter}>
                 <SelectTrigger>
                   <SelectValue placeholder="Tipo de recurso" />
@@ -252,6 +196,20 @@ export default function AzureResourcesPage() {
                   ))}
                 </SelectContent>
               </Select>
+
+              <Select value={environmentFilter} onValueChange={setEnvironmentFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Ambiente" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos los ambientes</SelectItem>
+                  {uniqueEnvironments.map((env) => (
+                    <SelectItem key={env} value={env}>
+                      {env === 'production' ? 'Producción' : env === 'development' ? 'Desarrollo' : env}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             {/* Tabla de recursos */}
@@ -262,17 +220,18 @@ export default function AzureResourcesPage() {
                     <TableHead>Recurso</TableHead>
                     <TableHead>Tipo</TableHead>
                     <TableHead>Grupo de Recursos</TableHead>
-                    <TableHead>Suscripción</TableHead>
+                    <TableHead>Ambiente</TableHead>
                     <TableHead>Locación</TableHead>
                     <TableHead>Estado</TableHead>
-                    <TableHead className="text-right">Costo/mes</TableHead>
+                    <TableHead>SKU</TableHead>
+                    <TableHead className="text-right">Portal</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredResources.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
-                        No se encontraron recursos con los filtros seleccionados
+                      <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                        {loading ? 'Cargando recursos...' : error ? 'Error al cargar recursos' : 'No se encontraron recursos con los filtros seleccionados'}
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -300,7 +259,12 @@ export default function AzureResourcesPage() {
                           <span className="text-sm">{resource.resourceGroup}</span>
                         </TableCell>
                         <TableCell>
-                          <span className="text-sm">{resource.subscription}</span>
+                          <Badge
+                            variant={resource.environment === 'production' ? 'default' : 'secondary'}
+                            className={resource.environment === 'production' ? 'bg-red-600 hover:bg-red-700' : ''}
+                          >
+                            {resource.environment === 'production' ? 'Producción' : resource.environment === 'development' ? 'Desarrollo' : resource.environment}
+                          </Badge>
                         </TableCell>
                         <TableCell>
                           <span className="text-sm text-muted-foreground">{resource.location}</span>
@@ -308,13 +272,26 @@ export default function AzureResourcesPage() {
                         <TableCell>
                           <Badge
                             variant={getStatusVariant(resource.status)}
-                            className={resource.status === "Running" ? "bg-green-500 hover:bg-green-600" : ""}
+                            className={resource.status === "running" ? "bg-green-500 hover:bg-green-600" : ""}
                           >
                             {resource.status}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-right font-medium">
-                          {resource.cost}
+                        <TableCell>
+                          <span className="text-sm text-muted-foreground">
+                            {resource.sku?.name || '-'}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <a
+                            href={resource.portalUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 hover:underline"
+                          >
+                            Ver
+                            <ExternalLink className="h-3 w-3" />
+                          </a>
                         </TableCell>
                       </TableRow>
                     ))
