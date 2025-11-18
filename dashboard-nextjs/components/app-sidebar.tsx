@@ -3,18 +3,10 @@
 import * as React from "react"
 import {
   LayoutDashboard,
-  Server,
-  Users,
-  HardDrive,
-  Network,
-  Shield,
-  Settings,
-  Database,
-  Activity,
-  FileText,
-  Bell,
-  BarChart3,
   Cloud,
+  Settings,
+  Bell,
+  Shield,
 } from "lucide-react"
 
 import {
@@ -51,54 +43,6 @@ const navItems = [
     icon: Cloud,
     url: "/azure-resources",
   },
-  {
-    title: "Servidores",
-    icon: Server,
-    url: "/servers",
-  },
-  {
-    title: "Usuarios",
-    icon: Users,
-    url: "/users",
-  },
-  {
-    title: "Almacenamiento",
-    icon: HardDrive,
-    url: "/storage",
-  },
-  {
-    title: "Red",
-    icon: Network,
-    url: "/network",
-  },
-  {
-    title: "Seguridad",
-    icon: Shield,
-    url: "/security",
-  },
-]
-
-const toolsItems = [
-  {
-    title: "Monitoreo",
-    icon: Activity,
-    url: "/monitoring",
-  },
-  {
-    title: "Bases de Datos",
-    icon: Database,
-    url: "/databases",
-  },
-  {
-    title: "Reportes",
-    icon: BarChart3,
-    url: "/reports",
-  },
-  {
-    title: "Tickets",
-    icon: FileText,
-    url: "/tickets",
-  },
 ]
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
@@ -124,28 +68,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Principal</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {navItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild>
-                    <a href={item.url}>
-                      <item.icon />
-                      <span>{item.title}</span>
-                    </a>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarGroup>
-          <SidebarGroupLabel>Herramientas</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {toolsItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild>
                     <a href={item.url}>
