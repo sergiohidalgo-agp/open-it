@@ -340,7 +340,7 @@ export default function AzureResourcesPage() {
                       <TableRow key={resource.id}>
                         <TableCell>
                           <div className="flex items-center gap-3">
-                            <AzureServiceIcon serviceType={resource.type} className="h-8 w-8" />
+                            <AzureServiceIcon serviceType={resource.type} size="32" />
                             <div>
                               <div className="font-medium">{resource.name}</div>
                               <div className="flex gap-1 mt-1">

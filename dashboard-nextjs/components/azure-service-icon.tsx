@@ -1,40 +1,47 @@
-import Image from "next/image"
+import {
+  VirtualMachine,
+  SQLDatabase,
+  StorageAccounts,
+  VirtualNetworks,
+  KeyVaults,
+  AppServicesAppServices,
+  AzureCosmosDBDatabases,
+  CDNProfilesAppServices,
+  LoadBalancers,
+} from "@threeveloper/azure-react-icons"
+import { TbBrandAzure } from "react-icons/tb"
 
 interface AzureServiceIconProps {
   serviceType: string
+  size?: string
   className?: string
 }
 
-// Mapeo de tipos de servicio a iconos oficiales de Azure
-// Usando az-icons.com CDN que tiene los iconos oficiales actualizados (Nov 2025)
-const serviceIconMap: Record<string, string> = {
-  "Virtual Machine": "https://az-icons.com/icons/10021-icon-service-Virtual-Machine.svg",
-  "SQL Database": "https://az-icons.com/icons/10130-icon-service-SQL-Database.svg",
-  "Storage Account": "https://az-icons.com/icons/10086-icon-service-Storage-Accounts.svg",
-  "Virtual Network": "https://az-icons.com/icons/10061-icon-service-Virtual-Networks.svg",
-  "Key Vault": "https://az-icons.com/icons/10245-icon-service-Key-Vaults.svg",
-  "App Service": "https://az-icons.com/icons/10035-icon-service-App-Services.svg",
-  "Cosmos DB": "https://az-icons.com/icons/10121-icon-service-Azure-Cosmos-DB.svg",
-  "CDN Profile": "https://az-icons.com/icons/10261-icon-service-CDN-Profiles.svg",
-  "Load Balancer": "https://az-icons.com/icons/10062-icon-service-Load-Balancers.svg",
+// Mapeo de tipos de servicio a componentes de iconos oficiales de Azure
+// Usando @threeveloper/azure-react-icons - iconos oficiales de Microsoft
+const serviceIconComponents: Record<string, React.ComponentType<{ size?: string }>> = {
+  "Virtual Machine": VirtualMachine,
+  "SQL Database": SQLDatabase,
+  "Storage Account": StorageAccounts,
+  "Virtual Network": VirtualNetworks,
+  "Key Vault": KeyVaults,
+  "App Service": AppServicesAppServices,
+  "Cosmos DB": AzureCosmosDBDatabases,
+  "CDN Profile": CDNProfilesAppServices,
+  "Load Balancer": LoadBalancers,
 }
 
-// Fallback icon genérico de Azure
-const defaultIcon = "https://az-icons.com/icons/00004-icon-service-Azure.svg"
+export function AzureServiceIcon({ serviceType, size = "24", className = "" }: AzureServiceIconProps) {
+  const IconComponent = serviceIconComponents[serviceType]
 
-export function AzureServiceIcon({ serviceType, className = "h-6 w-6" }: AzureServiceIconProps) {
-  const iconUrl = serviceIconMap[serviceType] || defaultIcon
+  if (!IconComponent) {
+    // Fallback al logo genérico de Azure
+    return <TbBrandAzure className={className} size={size} />
+  }
 
   return (
-    <div className={`relative ${className}`}>
-      <Image
-        src={iconUrl}
-        alt={`${serviceType} icon`}
-        width={24}
-        height={24}
-        className="object-contain"
-        unoptimized // CDN externo, no optimizar
-      />
+    <div className={className}>
+      <IconComponent size={size} />
     </div>
   )
 }
