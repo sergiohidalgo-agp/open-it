@@ -237,39 +237,30 @@ export default function AzureResourcesPage() {
                   ) : (
                     filteredResources.map((resource) => (
                       <TableRow key={resource.id}>
-                        <TableCell>
-                          <div className="flex items-center gap-3">
-                            <AzureServiceIcon serviceType={resource.type} size="32" />
-                            <div>
-                              <div className="font-medium">{resource.name}</div>
-                              <div className="flex gap-1 mt-1">
-                                {resource.tags.map((tag) => (
-                                  <Badge key={tag} variant="outline" className="text-xs">
-                                    {tag}
-                                  </Badge>
-                                ))}
-                              </div>
-                            </div>
+                        <TableCell className="py-3">
+                          <div className="flex items-center gap-2">
+                            <AzureServiceIcon serviceType={resource.type} size="24" />
+                            <span className="font-medium text-sm">{resource.name}</span>
                           </div>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="py-3">
                           <span className="text-sm text-muted-foreground">{resource.type}</span>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="py-3">
                           <span className="text-sm">{resource.resourceGroup}</span>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="py-3">
                           <Badge
                             variant={resource.environment === 'production' ? 'default' : 'secondary'}
                             className={resource.environment === 'production' ? 'bg-red-600 hover:bg-red-700' : ''}
                           >
-                            {resource.environment === 'production' ? 'Producción' : resource.environment === 'development' ? 'Desarrollo' : resource.environment}
+                            {resource.environment === 'production' ? 'Prod' : 'Dev'}
                           </Badge>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="py-3">
                           <span className="text-sm text-muted-foreground">{resource.location}</span>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="py-3">
                           <Badge
                             variant={getStatusVariant(resource.status)}
                             className={resource.status === "running" ? "bg-green-500 hover:bg-green-600" : ""}
@@ -277,12 +268,12 @@ export default function AzureResourcesPage() {
                             {resource.status}
                           </Badge>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="py-3">
                           <span className="text-sm text-muted-foreground">
                             {resource.sku?.name || '-'}
                           </span>
                         </TableCell>
-                        <TableCell className="text-right">
+                        <TableCell className="text-right py-3">
                           <a
                             href={resource.portalUrl}
                             target="_blank"
