@@ -6,8 +6,8 @@ import {
   Cloud,
   Settings,
   Bell,
-  Shield,
 } from "lucide-react"
+import { TbBrandAzure } from "react-icons/tb"
 
 import {
   Sidebar,
@@ -53,11 +53,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
               <a href="/">
-                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                  <Shield className="size-4" />
+                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-[#0078D4] text-white">
+                  <TbBrandAzure className="size-5" />
                 </div>
                 <div className="flex flex-col gap-0.5 leading-none">
-                  <span className="font-semibold">IT Dashboard</span>
+                  <span className="font-semibold">Azure Dashboard</span>
                   <span className="text-xs text-muted-foreground">Infraestructura</span>
                 </div>
               </a>

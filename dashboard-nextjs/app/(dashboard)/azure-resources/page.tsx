@@ -7,7 +7,9 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Search, Filter, Download, RefreshCw, Server, Database, HardDrive, Network, Shield, Cloud } from "lucide-react"
+import { Search, Download, RefreshCw, Server, Database, HardDrive, Network } from "lucide-react"
+import { AzureServiceIcon } from "@/components/azure-service-icon"
+import { TbBrandAzure } from "react-icons/tb"
 
 // Mock data de recursos Azure
 const mockAzureResources = [
@@ -123,26 +125,6 @@ const mockAzureResources = [
   },
 ]
 
-const getResourceIcon = (type: string) => {
-  switch (type) {
-    case "Virtual Machine":
-    case "App Service":
-      return <Server className="h-4 w-4" />
-    case "SQL Database":
-    case "Cosmos DB":
-      return <Database className="h-4 w-4" />
-    case "Storage Account":
-      return <HardDrive className="h-4 w-4" />
-    case "Virtual Network":
-    case "Load Balancer":
-    case "CDN Profile":
-      return <Network className="h-4 w-4" />
-    case "Key Vault":
-      return <Shield className="h-4 w-4" />
-    default:
-      return <Cloud className="h-4 w-4" />
-  }
-}
 
 const getStatusVariant = (status: string): "default" | "secondary" | "destructive" => {
   switch (status) {
@@ -194,7 +176,7 @@ export default function AzureResourcesPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Recursos</CardTitle>
-            <Cloud className="h-4 w-4 text-muted-foreground" />
+            <TbBrandAzure className="h-4 w-4 text-[#0078D4]" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{filteredResources.length}</div>
@@ -357,8 +339,8 @@ export default function AzureResourcesPage() {
                     filteredResources.map((resource) => (
                       <TableRow key={resource.id}>
                         <TableCell>
-                          <div className="flex items-center gap-2">
-                            {getResourceIcon(resource.type)}
+                          <div className="flex items-center gap-3">
+                            <AzureServiceIcon serviceType={resource.type} className="h-8 w-8" />
                             <div>
                               <div className="font-medium">{resource.name}</div>
                               <div className="flex gap-1 mt-1">
