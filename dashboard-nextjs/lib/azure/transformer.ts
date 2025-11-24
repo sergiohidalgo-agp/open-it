@@ -124,6 +124,120 @@ function extractSkuName(raw: AzureResourceRaw): string | undefined {
 }
 
 /**
+ * Extrae la fecha de creación del recurso
+ * Prioridad: properties.creationDate > createdTime > tags
+ */
+function extractCreatedDate(raw: AzureResourceRaw): string | undefined {
+  // 1. Para App Services y Functions: properties.creationDate
+  if (raw.properties?.creationDate) {
+    return raw.properties.creationDate
+  }
+
+  // 2. Campo createdTime (comando general az resource list)
+  if (raw.createdTime) {
+    return raw.createdTime
+  }
+
+  // 3. Buscar en tags como fallback
+  if (raw.tags) {
+    const createdTag =
+      raw.tags['created'] ||
+      raw.tags['createdDate'] ||
+      raw.tags['dateCreated'] ||
+      raw.tags['Created'] ||
+      raw.tags['CreatedDate'] ||
+      raw.tags['DateCreated']
+
+    if (createdTag) {
+      return createdTag
+    }
+  }
+
+  return undefined
+}
+
+/**
+ * Extrae información del repositorio Git asociado
+ * Prioridad: devopsRepository (Azure DevOps API) > deploymentSource > properties.repositorySiteConfig > tags
+ */
+function extractGitRepository(raw: AzureResourceRaw): AzureResource['gitRepository'] {
+  let repoUrl: string | undefined
+  let branch: string | undefined
+  let provider: 'github' | 'gitlab' | 'azuredevops' | 'other' | undefined
+
+  // 1. PRIORIDAD MÁXIMA: Verificar devopsRepository (datos de Azure DevOps API)
+  if (raw.devopsRepository?.url) {
+    repoUrl = raw.devopsRepository.url
+    branch = raw.devopsRepository.branch
+    // Provider viene del script de DevOps
+    if (raw.devopsRepository.provider === 'TfsGit') {
+      provider = 'azuredevops'
+    } else if (raw.devopsRepository.provider === 'GitHub') {
+      provider = 'github'
+    } else {
+      provider = 'other'
+    }
+  }
+
+  // 2. Verificar deploymentSource (se obtiene con az webapp deployment source show)
+  if (!repoUrl && raw.deploymentSource) {
+    // Solo usar si repoUrl no es 'VSTSRM' (que es un placeholder)
+    if (raw.deploymentSource.repoUrl && raw.deploymentSource.repoUrl !== 'VSTSRM') {
+      repoUrl = raw.deploymentSource.repoUrl
+      branch = raw.deploymentSource.branch
+    }
+  }
+
+  // 3. Para App Services, verificar propiedades de configuración
+  if (!repoUrl && raw.type === 'Microsoft.Web/sites' && raw.properties?.repositorySiteConfig) {
+    repoUrl = raw.properties.repositorySiteConfig.repoUrl
+    branch = branch || raw.properties.repositorySiteConfig.branch
+  }
+
+  // 4. Verificar tags como fallback
+  if (!repoUrl && raw.tags) {
+    repoUrl =
+      raw.tags['repository'] ||
+      raw.tags['git'] ||
+      raw.tags['gitRepository'] ||
+      raw.tags['Repository'] ||
+      raw.tags['Git'] ||
+      raw.tags['repo']
+
+    branch =
+      branch ||
+      raw.tags['branch'] ||
+      raw.tags['gitBranch'] ||
+      raw.tags['Branch']
+  }
+
+  // Si no hay URL de repositorio, retornar undefined
+  if (!repoUrl) {
+    return undefined
+  }
+
+  // Determinar el provider basado en la URL (si no se determinó antes)
+  if (!provider) {
+    const lowerUrl = repoUrl.toLowerCase()
+    if (lowerUrl.includes('github.com')) {
+      provider = 'github'
+    } else if (lowerUrl.includes('gitlab.com')) {
+      provider = 'gitlab'
+    } else if (lowerUrl.includes('dev.azure.com') || lowerUrl.includes('visualstudio.com') || lowerUrl.includes('_git')) {
+      provider = 'azuredevops'
+    } else {
+      provider = 'other'
+    }
+  }
+
+  return {
+    url: repoUrl,
+    branch,
+    provider,
+  }
+}
+
+/**
  * Transforma un recurso raw de Azure a formato procesado
  */
 export function transformAzureResource(
@@ -136,6 +250,8 @@ export function transformAzureResource(
   const type = mapResourceType(raw.type)
   const portalUrl = generatePortalUrl(raw.id, subscription.tenantId)
   const skuName = extractSkuName(raw)
+  const createdDate = extractCreatedDate(raw)
+  const gitRepository = extractGitRepository(raw)
 
   return {
     id: raw.id,
@@ -159,6 +275,8 @@ export function transformAzureResource(
     portalUrl,
     kind: raw.kind || undefined,
     managedBy: raw.managedBy || undefined,
+    createdDate,
+    gitRepository,
   }
 }
 

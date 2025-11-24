@@ -42,3 +42,4 @@ next-env.d.ts
 
 # azure data
 /data/
+.env.local

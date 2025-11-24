@@ -52,10 +52,36 @@ export interface AzureResourceRaw {
     hardwareProfile?: {
       vmSize?: string
     }
+    // Para App Services y Functions
+    creationDate?: string
+    // Configuración de deployment source (App Services)
+    siteConfig?: {
+      scmType?: string
+    }
+    repositorySiteConfig?: {
+      repoUrl?: string
+      branch?: string
+    }
+  } | null
+  // Información de deployment source (se obtiene con comando separado)
+  deploymentSource?: {
+    type?: string
+    repoUrl?: string
+    branch?: string
+    isManualIntegration?: boolean
+    isMercurial?: boolean
+  } | null
+  // Información de Azure DevOps (se obtiene del script enrich-with-devops.sh)
+  devopsRepository?: {
+    url: string
+    branch?: string
+    provider?: string
   } | null
   resourceGroup?: string
   kind?: string | null
   managedBy?: string | null
+  // Fecha de creación del recurso (si está disponible en tags o metadatos)
+  createdTime?: string | null
 }
 
 /**
@@ -104,6 +130,16 @@ export interface AzureResource {
   // Metadata adicional
   kind?: string
   managedBy?: string
+
+  // Fecha de creación del recurso
+  createdDate?: string
+
+  // Información de repositorio Git asociado
+  gitRepository?: {
+    url: string
+    branch?: string
+    provider?: 'github' | 'gitlab' | 'azuredevops' | 'other'
+  }
 }
 
 /**

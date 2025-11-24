@@ -6,6 +6,7 @@ import {
   Cloud,
   Settings,
   Bell,
+  Database,
 } from "lucide-react"
 import { TbBrandAzure } from "react-icons/tb"
 
@@ -42,6 +43,11 @@ const navItems = [
     title: "Recursos Azure",
     icon: Cloud,
     url: "/azure-resources",
+  },
+  {
+    title: "SQL Performance",
+    icon: Database,
+    url: "/sql-performance",
   },
 ]
 

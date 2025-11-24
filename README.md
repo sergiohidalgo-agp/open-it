@@ -33,6 +33,7 @@ All libraries are battle-tested, enterprise-backed, and actively maintained:
 | **Tailwind CSS** | 4.x | GitHub, Shopify, Netflix, NASA | Utility-first CSS |
 | **shadcn/ui** | Latest | Linear, Vercel, Cal.com | Component library (Radix UI) |
 | **Lucide React** | Latest | 10k+ stars, active maintenance | Icon system |
+| **Recharts** | Latest | Airbnb, Alibaba, Microsoft | Data visualization |
 
 ## 📁 Project Structure
 
@@ -135,6 +136,11 @@ Built with **shadcn/ui** (based on Radix UI primitives):
 - ✅ Maintenance scheduler
 - ✅ Dark/light mode support
 - ✅ Mobile-responsive design
+- ✅ Azure Resources monitoring
+- ✅ SQL Server performance monitoring
+  - Top 15 SPs by CPU consumption
+  - CPU vs Executions scatter plot
+  - 24h execution patterns
 
 ### Coming Soon
 - [ ] Real-time data integration
@@ -214,6 +220,7 @@ Built with enterprise-grade open source technologies:
 - [shadcn/ui](https://ui.shadcn.com/) by shadcn
 - [Radix UI](https://www.radix-ui.com/) by WorkOS
 - [Lucide Icons](https://lucide.dev/) by the Lucide community
+- [Recharts](https://recharts.org/) by Recharts
 
 ## 📞 Support
 
@@ -245,6 +252,7 @@ Todas las librerías están probadas en batalla, respaldadas por empresas y mant
 | **Tailwind CSS** | 4.x | GitHub, Shopify, Netflix, NASA | CSS utility-first |
 | **shadcn/ui** | Latest | Linear, Vercel, Cal.com | Librería de componentes (Radix UI) |
 | **Lucide React** | Latest | 10k+ estrellas, mantenimiento activo | Sistema de iconos |
+| **Recharts** | Latest | Airbnb, Alibaba, Microsoft | Visualización de datos |
 
 ## 📁 Estructura del Proyecto
 
@@ -347,6 +355,11 @@ Construido con **shadcn/ui** (basado en primitivos Radix UI):
 - ✅ Programador de mantenimiento
 - ✅ Soporte modo claro/oscuro
 - ✅ Diseño mobile-responsive
+- ✅ Monitoreo de recursos Azure
+- ✅ Monitoreo de performance SQL Server
+  - Top 15 SPs por consumo de CPU
+  - Gráfico de dispersión CPU vs Ejecuciones
+  - Patrones de ejecución 24h
 
 ### Próximamente
 - [ ] Integración de datos en tiempo real
@@ -433,6 +446,7 @@ Construido con tecnologías open source de nivel empresarial:
 - [shadcn/ui](https://ui.shadcn.com/) por shadcn
 - [Radix UI](https://www.radix-ui.com/) por WorkOS
 - [Lucide Icons](https://lucide.dev/) por la comunidad Lucide
+- [Recharts](https://recharts.org/) por Recharts
 
 ## 📞 Soporte
 

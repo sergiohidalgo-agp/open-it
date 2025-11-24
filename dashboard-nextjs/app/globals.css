@@ -122,3 +122,36 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Animación de marquesina para textos largos */
+@keyframes marquee {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(calc(-100% + 32ch));
+  }
+}
+
+.marquee-container {
+  max-width: 32ch;
+  overflow: hidden;
+  position: relative;
+  display: block;
+}
+
+.marquee-text {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+/* Solo animar si el texto es más largo que el contenedor */
+.marquee-text[data-long="true"] {
+  min-width: 100%;
+  padding-right: 2rem;
+}
+
+.group:hover .marquee-text[data-long="true"] {
+  animation: marquee 5s linear infinite;
+  animation-delay: 0.5s;
+}

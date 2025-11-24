@@ -32,6 +32,12 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 DATA_DIR="$PROJECT_ROOT/data"
 OUTPUT_FILE="$DATA_DIR/azure-raw.json"
+DEVOPS_MAPPINGS="$DATA_DIR/azure-devops-mappings.json"
+
+# Cargar variables de entorno desde .env.local si existe
+if [ -f "$PROJECT_ROOT/.env.local" ]; then
+    export $(grep -v '^#' "$PROJECT_ROOT/.env.local" | xargs)
+fi
 
 echo -e "${GREEN}╔════════════════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}║   OpenIT - Recolector de Recursos Azure           ║${NC}"
@@ -105,11 +111,67 @@ VM_COUNT=$(echo "$VMS" | jq 'length')
 add_resources "$VMS"
 show_progress "Virtual Machines" "$VM_COUNT"
 
-# 2. App Services (Web Apps)
+# 2. App Services (Web Apps) con deployment source
 echo -e "  ${YELLOW}→${NC} App Services..."
 WEBAPPS=$(az webapp list --output json 2>/dev/null || echo "[]")
 WEBAPP_COUNT=$(echo "$WEBAPPS" | jq 'length')
-add_resources "$WEBAPPS"
+
+# Enriquecer cada App Service con deployment source y Azure DevOps info
+if [ "$WEBAPP_COUNT" -gt 0 ]; then
+    # Crear archivo temporal para procesar
+    TEMP_WEBAPPS=$(mktemp)
+    echo "$WEBAPPS" > "$TEMP_WEBAPPS"
+
+    # Verificar si existe archivo de mappings de DevOps
+    HAS_DEVOPS_MAPPINGS=false
+    if [ -f "$DEVOPS_MAPPINGS" ]; then
+        HAS_DEVOPS_MAPPINGS=true
+        echo -e "  ${GREEN}✓${NC} Mappings de Azure DevOps encontrados"
+    fi
+
+    # Procesar cada webapp individualmente
+    counter=0
+    while IFS= read -r webapp; do
+        counter=$((counter + 1))
+        app_name=$(echo "$webapp" | jq -r '.name')
+        resource_group=$(echo "$webapp" | jq -r '.resourceGroup')
+
+        # Mostrar progreso cada 10 apps
+        if [ $((counter % 10)) -eq 0 ]; then
+            echo -e "    ${YELLOW}Processing${NC} $counter/$WEBAPP_COUNT App Services..."
+        fi
+
+        # Obtener deployment source (silenciar errores)
+        deployment_source=$(az webapp deployment source show \
+            -n "$app_name" \
+            -g "$resource_group" \
+            --output json 2>/dev/null || echo "null")
+
+        # Enriquecer con info de Azure DevOps si existe
+        if [ "$HAS_DEVOPS_MAPPINGS" = true ]; then
+            devops_info=$(jq --arg name "$app_name" \
+                '.[] | select(.resourceName == $name) | .repository' \
+                "$DEVOPS_MAPPINGS" 2>/dev/null || echo "null")
+
+            # Agregar deploymentSource y devopsRepository
+            enriched=$(echo "$webapp" | jq \
+                --argjson ds "$deployment_source" \
+                --argjson devops "$devops_info" \
+                '. + {deploymentSource: $ds, devopsRepository: $devops}')
+        else
+            # Solo agregar deploymentSource
+            enriched=$(echo "$webapp" | jq --argjson ds "$deployment_source" '. + {deploymentSource: $ds}')
+        fi
+
+        # Agregar directamente a ALL_RESOURCES en lugar de acumular
+        ALL_RESOURCES=$(echo "$ALL_RESOURCES" | jq --argjson new "$enriched" '. + [$new]')
+    done < <(jq -c '.[]' "$TEMP_WEBAPPS")
+
+    # Limpiar archivo temporal
+    rm -f "$TEMP_WEBAPPS"
+else
+    add_resources "$WEBAPPS"
+fi
 show_progress "App Services" "$WEBAPP_COUNT"
 
 # 3. SQL Databases
@@ -174,19 +236,107 @@ show_progress "CDN Profiles" "$CDN_COUNT"
 
 echo ""
 
-# Calcular total de recursos
-TOTAL_RESOURCES=$(echo "$ALL_RESOURCES" | jq 'length')
+# Calcular total de recursos antes de enriquecer
+TEMP_RESOURCES=$(mktemp)
+echo "$ALL_RESOURCES" > "$TEMP_RESOURCES"
+TOTAL_RESOURCES=$(jq 'length' "$TEMP_RESOURCES")
 
-# Crear el JSON final con metadata
+echo -e "${YELLOW}🔍 Extrayendo información de Azure DevOps...${NC}"
+
+# Ejecutar extracción de metadata de DevOps inline
+devops_count=0
+SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+
+# Crear archivo temporal para mappings
+TEMP_MAPPINGS=$(mktemp)
+
+# Procesar cada App Service para extraer metadata de VSTSRM
+while IFS= read -r resource; do
+    resource_name=$(echo "$resource" | jq -r '.name')
+    resource_id=$(echo "$resource" | jq -r '.id')
+
+    # Obtener metadata del recurso
+    metadata=$(az rest --method post \
+        --uri "https://management.azure.com${resource_id}/config/metadata/list?api-version=2022-09-01" \
+        -o json 2>/dev/null || echo "{}")
+
+    # Verificar si tiene configuración de VSTSRM (Azure DevOps)
+    vstsrm_project=$(echo "$metadata" | jq -r '.properties.VSTSRM_ProjectId // empty')
+    vstsrm_build_id=$(echo "$metadata" | jq -r '.properties.VSTSRM_BuildDefinitionId // empty')
+    vstsrm_url=$(echo "$metadata" | jq -r '.properties.VSTSRM_BuildDefinitionWebAccessUrl // empty')
+
+    if [ -z "$vstsrm_project" ] || [ "$vstsrm_project" == "null" ]; then
+        continue
+    fi
+
+    # Extraer organización del URL
+    if [[ "$vstsrm_url" =~ https://([^.]+)\.(visualstudio\.com|dev\.azure\.com) ]]; then
+        org_name="${BASH_REMATCH[1]}"
+
+        # Si tenemos PAT, obtener información del repositorio
+        if [ -n "$AZURE_DEVOPS_PAT" ] && [ -n "$vstsrm_build_id" ]; then
+            build_def=$(curl -s -u ":$AZURE_DEVOPS_PAT" \
+                "https://dev.azure.com/$org_name/$vstsrm_project/_apis/build/definitions/$vstsrm_build_id?api-version=7.0" \
+                2>/dev/null || echo "{}")
+
+            repo_url=$(echo "$build_def" | jq -r '.repository.url // empty')
+            repo_type=$(echo "$build_def" | jq -r '.repository.type // empty')
+            default_branch=$(echo "$build_def" | jq -r '.repository.defaultBranch // "main"' | sed 's|refs/heads/||')
+
+            if [ -n "$repo_url" ] && [ "$repo_url" != "null" ] && [ "$repo_url" != "empty" ]; then
+                provider="azuredevops"
+                if [[ "$repo_type" == "GitHub" ]]; then
+                    provider="github"
+                elif [[ "$repo_type" == "GitLab" ]]; then
+                    provider="gitlab"
+                fi
+
+                # Guardar mapping en archivo temporal
+                echo "$resource_name|$repo_url|$default_branch|$provider" >> "$TEMP_MAPPINGS"
+                devops_count=$((devops_count + 1))
+            fi
+        fi
+    fi
+done < <(jq -c '.[] | select(.type == "Microsoft.Web/sites")' "$TEMP_RESOURCES")
+
+if [ "$devops_count" -gt 0 ]; then
+    echo -e "${GREEN}✓${NC} Azure DevOps: $devops_count repositorios detectados"
+
+    # Enriquecer ALL_RESOURCES con los mappings
+    while IFS='|' read -r name url branch provider; do
+        ALL_RESOURCES=$(echo "$ALL_RESOURCES" | jq --arg name "$name" \
+            --arg url "$url" \
+            --arg branch "$branch" \
+            --arg provider "$provider" \
+            'map(if .name == $name then . + {devopsRepository: {url: $url, branch: $branch, provider: $provider}} else . end)')
+    done < "$TEMP_MAPPINGS"
+
+    rm -f "$TEMP_MAPPINGS"
+else
+    if [ -z "$AZURE_DEVOPS_PAT" ]; then
+        echo -e "${YELLOW}⚠${NC}  Azure DevOps: PAT no configurado. Configura AZURE_DEVOPS_PAT para obtener repositorios"
+    else
+        echo -e "${YELLOW}⚠${NC}  Azure DevOps: No se encontraron repositorios"
+    fi
+    rm -f "$TEMP_MAPPINGS"
+fi
+
+echo ""
+
+# Actualizar el archivo temporal con los datos enriquecidos
+echo "$ALL_RESOURCES" > "$TEMP_RESOURCES"
+
+# Crear el JSON final con metadata (usando archivo temporal)
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-FINAL_JSON=$(jq -n \
+# Crear el JSON final escribiendo directamente al archivo
+jq -n \
     --arg timestamp "$TIMESTAMP" \
     --arg subId "$SUBSCRIPTION_ID" \
     --arg subName "$SUBSCRIPTION_NAME" \
     --arg tenantId "$TENANT_ID" \
     --arg subState "$SUBSCRIPTION_STATE" \
-    --argjson resources "$ALL_RESOURCES" \
+    --slurpfile resources "$TEMP_RESOURCES" \
     '{
         subscription: {
             subscriptionId: $subId,
@@ -194,12 +344,12 @@ FINAL_JSON=$(jq -n \
             tenantId: $tenantId,
             state: $subState
         },
-        resources: $resources,
+        resources: $resources[0],
         timestamp: $timestamp
-    }')
+    }' > "$OUTPUT_FILE"
 
-# Guardar el JSON
-echo "$FINAL_JSON" > "$OUTPUT_FILE"
+# Limpiar archivo temporal
+rm -f "$TEMP_RESOURCES"
 
 echo -e "${GREEN}╔════════════════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}║   ✅ Recolección Completada                        ║${NC}"
