@@ -14,6 +14,13 @@ import { getAllResources, upsertResource, deleteResource, saveSyncHistory } from
 import { determineSyncActions, azureResourceToDBResource, applyConflictResolutions } from '@/lib/db/sync-helpers'
 import { initializeDatabase } from '@/lib/db/init'
 import type { SyncHistory } from '@/lib/db/schemas'
+import { syncLogger, logError } from '@/lib/logger'
+import {
+  AzureAccountSchema,
+  AzureResourceRawSchema,
+  parseJsonSafe,
+} from '@/lib/validation/azure-schemas'
+import { z } from 'zod'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,7 +30,7 @@ function sendEvent(controller: ReadableStreamDefaultController, event: string, d
     controller.enqueue(new TextEncoder().encode(message))
   } catch (error) {
     // Controller ya está cerrado, ignorar
-    console.warn('Controller closed, cannot send event:', event)
+    syncLogger.warn({ event }, 'Controller closed, cannot send event')
   }
 }
 
@@ -126,7 +133,18 @@ export async function GET(request: NextRequest) {
 
         try {
           const subStdout = await execCommandWithProgress('az', ['account', 'show', '--output', 'json'], controller)
-          const subData = JSON.parse(subStdout)
+
+          // Validar respuesta con Zod
+          const parseResult = parseJsonSafe(subStdout, AzureAccountSchema)
+          if (!parseResult.success) {
+            syncLogger.error({ error: parseResult.error }, 'Invalid Azure account data')
+            sendEvent(controller, 'log', { level: 'error', message: `❌ Datos inválidos de Azure CLI: ${parseResult.error}` })
+            sendEvent(controller, 'error', { error: parseResult.error })
+            controller.close()
+            return
+          }
+
+          const subData = parseResult.data
           subscription = {
             subscriptionId: subData.id,
             subscriptionName: subData.name,
@@ -134,6 +152,7 @@ export async function GET(request: NextRequest) {
           }
           sendEvent(controller, 'log', { level: 'success', message: `✅ Suscripción: ${subscription.subscriptionName}` })
         } catch (error: any) {
+          logError(syncLogger, error, 'Error obteniendo suscripción')
           sendEvent(controller, 'log', { level: 'error', message: `❌ Error obteniendo suscripción: ${error.message}` })
           sendEvent(controller, 'error', { error: error.message })
           controller.close()
@@ -174,7 +193,17 @@ export async function GET(request: NextRequest) {
             controller
           )
 
-          const resources = JSON.parse(stdout)
+          // Validar recursos con Zod
+          const resourcesParseResult = parseJsonSafe(stdout, z.array(AzureResourceRawSchema))
+          if (!resourcesParseResult.success) {
+            syncLogger.error({ error: resourcesParseResult.error }, 'Invalid Azure resources data')
+            sendEvent(controller, 'log', { level: 'error', message: `❌ Datos inválidos de recursos Azure: ${resourcesParseResult.error}` })
+            sendEvent(controller, 'error', { error: resourcesParseResult.error })
+            controller.close()
+            return
+          }
+
+          const resources = resourcesParseResult.data
           azureData = {
             subscription,
             resources,
@@ -183,6 +212,7 @@ export async function GET(request: NextRequest) {
 
           sendEvent(controller, 'log', { level: 'success', message: `✅ ${resources.length} recursos obtenidos de Azure` })
         } catch (error: any) {
+          logError(syncLogger, error, 'Error ejecutando Azure CLI')
           sendEvent(controller, 'log', { level: 'error', message: `❌ Error ejecutando Azure CLI: ${error.message}` })
           sendEvent(controller, 'error', { error: error.message })
           controller.close()

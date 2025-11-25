@@ -292,6 +292,11 @@ export function determineSyncActions(
 }
 
 /**
+ * Type-safe field mapping between AzureResource and ResourceDB
+ */
+type SyncableField = typeof CONFLICT_FIELDS[number]
+
+/**
  * Aplica resoluciones de conflictos a un recurso
  */
 export function applyConflictResolutions(
@@ -303,9 +308,14 @@ export function applyConflictResolutions(
 
   for (const [field, resolution] of Object.entries(resolutions)) {
     if (resolution === 'use-azure') {
-      // Usar valor de Azure
-      const azureValue = azureResource[field as keyof AzureResource]
-      ;(result as any)[field] = azureValue
+      // Usar valor de Azure - Type-safe field assignment
+      const syncableField = field as SyncableField
+      const azureValue = azureResource[syncableField as keyof AzureResource]
+
+      // Type-safe assignment to result
+      if (syncableField in result) {
+        (result as Record<SyncableField, unknown>)[syncableField] = azureValue
+      }
     } else if (resolution === 'use-database') {
       // Mantener valor de BD (no hacer nada)
       continue
@@ -321,6 +331,13 @@ export function applyConflictResolutions(
 }
 
 /**
+ * Type for Zod error
+ */
+interface ZodValidationError {
+  errors?: Array<{ path: Array<string | number>; message: string }>
+}
+
+/**
  * Valida un recurso antes de guardarlo en BD
  */
 export function validateResource(resource: ResourceDB): {
@@ -330,8 +347,9 @@ export function validateResource(resource: ResourceDB): {
   try {
     ResourceDBSchema.parse(resource)
     return { isValid: true }
-  } catch (error: any) {
-    const errors = error.errors?.map((e: any) => `${e.path.join('.')}: ${e.message}`) || [
+  } catch (error) {
+    const zodError = error as ZodValidationError
+    const errors = zodError.errors?.map((e) => `${e.path.join('.')}: ${e.message}`) || [
       'Unknown validation error',
     ]
     return { isValid: false, errors }

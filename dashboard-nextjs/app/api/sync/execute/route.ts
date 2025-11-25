@@ -22,6 +22,7 @@ import { saveSyncHistory } from '@/lib/db/queries'
 import { initializeDatabase } from '@/lib/db/init'
 import type { SyncAPIResponse, ConflictResolution, SyncOptions } from '@/lib/types/database'
 import type { SyncHistory } from '@/lib/db/schemas'
+import { syncLogger, logError } from '@/lib/logger'
 
 /**
  * Body del request
@@ -40,7 +41,7 @@ export async function POST(request: NextRequest) {
     const { conflictResolutions, userId } = body
 
     // 2. Inicializar base de datos
-    console.log('🔍 Initializing database...')
+    syncLogger.info('Initializing database')
     const dbInit = await initializeDatabase()
 
     if (!dbInit.success) {
@@ -55,7 +56,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 3. Leer recursos de Azure
-    console.log('📊 Loading Azure resources...')
+    syncLogger.info('Loading Azure resources')
     const dataPath = join(process.cwd(), 'data', 'azure-raw.json')
 
     let azureData: AzureRawData
@@ -81,10 +82,10 @@ export async function POST(request: NextRequest) {
     const azureResources = transformAzureResources(azureData.resources, azureData.subscription)
     const dbResources = await getAllResources()
 
-    console.log(`✅ Azure: ${azureResources.length}, DB: ${dbResources.length}`)
+    syncLogger.info({ azureCount: azureResources.length, dbCount: dbResources.length }, 'Resources loaded')
 
     // 5. Determinar acciones
-    console.log('📋 Determining sync actions...')
+    syncLogger.info('Determining sync actions')
     const actions = determineSyncActions(azureResources, dbResources, conflictResolutions)
 
     // Estadísticas para tracking
@@ -99,7 +100,7 @@ export async function POST(request: NextRequest) {
     const dbResourceMap = new Map(dbResources.map((r) => [r.name, r]))
 
     // 6. Ejecutar acciones de sincronización
-    console.log('🔄 Executing sync actions...')
+    syncLogger.info({ actionCount: actions.length }, 'Executing sync actions')
 
     for (const action of actions) {
       try {
@@ -116,7 +117,7 @@ export async function POST(request: NextRequest) {
             const dbResource = azureResourceToDBResource(azureResource, 'manual')
             await upsertResource(dbResource)
             resourcesCreated++
-            console.log(`  ✅ Created: ${action.resourceName}`)
+            syncLogger.debug({ resource: action.resourceName }, 'Resource created')
             break
           }
 
@@ -150,7 +151,7 @@ export async function POST(request: NextRequest) {
 
             await upsertResource(updatedResource)
             resourcesUpdated++
-            console.log(`  ✅ Updated: ${action.resourceName}`)
+            syncLogger.debug({ resource: action.resourceName }, 'Resource updated')
             break
           }
 
@@ -158,20 +159,23 @@ export async function POST(request: NextRequest) {
             // Eliminar recurso de BD
             await deleteResource(action.resourceName)
             resourcesDeleted++
-            console.log(`  ✅ Deleted: ${action.resourceName}`)
+            syncLogger.debug({ resource: action.resourceName }, 'Resource deleted')
             break
           }
 
           case 'skip': {
             resourcesSkipped++
-            console.log(`  ⏭️  Skipped: ${action.resourceName} (${action.reason})`)
+            syncLogger.debug({ resource: action.resourceName, reason: action.reason }, 'Resource skipped')
             break
           }
         }
       } catch (error) {
         const errorMsg = `Failed to ${action.operation} ${action.resourceName}: ${error instanceof Error ? error.message : 'Unknown error'}`
         errors.push(errorMsg)
-        console.error(`  ❌ ${errorMsg}`)
+        logError(syncLogger, error, 'Sync action failed', {
+          operation: action.operation,
+          resource: action.resourceName
+        })
       }
     }
 
@@ -206,8 +210,13 @@ export async function POST(request: NextRequest) {
 
     await saveSyncHistory(syncHistory)
 
-    console.log(`✅ Sync completed in ${durationMs}ms`)
-    console.log(`   Created: ${resourcesCreated}, Updated: ${resourcesUpdated}, Deleted: ${resourcesDeleted}, Skipped: ${resourcesSkipped}`)
+    syncLogger.info({
+      durationMs,
+      created: resourcesCreated,
+      updated: resourcesUpdated,
+      deleted: resourcesDeleted,
+      skipped: resourcesSkipped
+    }, 'Sync completed')
 
     // 9. Retornar resultado
     return NextResponse.json({
@@ -227,7 +236,7 @@ export async function POST(request: NextRequest) {
       timestamp: new Date().toISOString(),
     } as SyncAPIResponse)
   } catch (error) {
-    console.error('❌ Sync execution error:', error)
+    logError(syncLogger, error, 'Sync execution error')
 
     return NextResponse.json(
       {
