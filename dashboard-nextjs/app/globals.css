@@ -155,3 +155,20 @@
   animation: marquee 5s linear infinite;
   animation-delay: 0.5s;
 }
+
+/* Scrollbar siempre visible en el terminal de logs */
+.sync-terminal-scroll [data-radix-scroll-area-viewport] {
+  scrollbar-gutter: stable;
+}
+
+.sync-terminal-scroll [data-radix-scroll-area-scrollbar] {
+  opacity: 1 !important;
+}
+
+.sync-terminal-scroll [data-radix-scroll-area-thumb] {
+  background-color: rgba(156, 163, 175, 0.5) !important;
+}
+
+.sync-terminal-scroll [data-radix-scroll-area-thumb]:hover {
+  background-color: rgba(156, 163, 175, 0.7) !important;
+}
