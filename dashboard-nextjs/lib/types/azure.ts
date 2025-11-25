@@ -139,7 +139,17 @@ export interface AzureResource {
     url: string
     branch?: string
     provider?: 'github' | 'gitlab' | 'azuredevops' | 'other'
+    projectName?: string
+    organizationName?: string
   }
+
+  // Participantes del proyecto (para proyectos de Azure DevOps)
+  projectParticipants?: {
+    id: string
+    displayName: string
+    uniqueName?: string
+    imageUrl?: string
+  }[]
 }
 
 /**
@@ -152,6 +162,7 @@ export interface AzureResourcesResponse {
     total: number
     subscriptions: string[]
     lastUpdated: string
+    lastSyncStatus?: string
   }
   error?: string
 }
