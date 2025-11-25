@@ -4,9 +4,15 @@ import { useState, useEffect } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { GitBranch, Calendar } from "lucide-react"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Button } from "@/components/ui/button"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { GitBranch, Calendar, Users, Info } from "lucide-react"
+import { DiVisualstudio } from "react-icons/di"
 import { AzureServiceIcon } from "@/components/azure-service-icon"
+import { SyncButton } from "@/components/sync-button"
 import type { AzureResource, AzureResourcesResponse, ResourceStatus } from "@/lib/types/azure"
+import type { Conflict, ConflictResolution, SyncAPIResponse } from "@/lib/types/database"
 
 const getStatusVariant = (status: ResourceStatus): "default" | "secondary" | "destructive" => {
   switch (status) {
@@ -91,6 +97,7 @@ export default function AzureResourcesPage() {
   const [resources, setResources] = useState<AzureResource[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [lastSync, setLastSync] = useState<string | null>(null)
 
   // Cargar recursos desde la API
   useEffect(() => {
@@ -107,6 +114,9 @@ export default function AzureResourcesPage() {
 
       if (data.success) {
         setResources(data.data)
+        if (data.metadata?.lastUpdated) {
+          setLastSync(data.metadata.lastUpdated)
+        }
       } else {
         setError(data.error || 'Error al cargar recursos')
       }
@@ -118,13 +128,37 @@ export default function AzureResourcesPage() {
     }
   }
 
+  const handleSyncComplete = (success: boolean) => {
+    if (success) {
+      setTimeout(() => fetchResources(), 1000)
+    }
+  }
+
   return (
-    <div className="flex flex-1 flex-col">
-      {/* Mensaje de error */}
-      {error && (
-        <div className="mb-4 p-4 border border-red-200 bg-red-50 rounded-md">
-          <p className="text-sm text-red-800">{error}</p>
+    <div className="flex flex-1 flex-col gap-4">
+      {/* Header con botón de sincronización */}
+      <div className="flex items-center justify-between">
+        <div className="space-y-1">
+          <h2 className="text-2xl font-bold tracking-tight">Recursos Azure</h2>
+          <p className="text-sm text-muted-foreground">
+            Administra y sincroniza tus recursos de Azure con Cosmos DB
+          </p>
+          {lastSync && (
+            <p className="text-xs text-muted-foreground">
+              Última sincronización: {new Date(lastSync).toLocaleString('es-ES')}
+            </p>
+          )}
         </div>
+
+        <SyncButton onSyncComplete={handleSyncComplete} disabled={loading} />
+      </div>
+
+      {/* Mensajes de error */}
+      {error && (
+        <Alert variant="destructive">
+          <Info className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
 
       {/* Tabla de recursos */}
@@ -139,19 +173,20 @@ export default function AzureResourcesPage() {
                 <TableHead className="h-10 px-4 font-medium text-xs uppercase text-muted-foreground">Locación</TableHead>
                 <TableHead className="h-10 px-4 font-medium text-xs uppercase text-muted-foreground">Creación</TableHead>
                 <TableHead className="h-10 px-4 text-center font-medium text-xs uppercase text-muted-foreground">Git</TableHead>
+                <TableHead className="h-10 px-4 font-medium text-xs uppercase text-muted-foreground">Participantes</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {resources.length === 0 ? (
                 <TableRow className="hover:bg-transparent">
-                  <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
                     {loading ? 'Cargando recursos...' : error ? 'Error al cargar recursos' : 'No hay recursos disponibles'}
                   </TableCell>
                 </TableRow>
               ) : (
-                resources.map((resource) => (
+                resources.map((resource, index) => (
                   <TableRow
-                    key={resource.id}
+                    key={`${resource.id}-${index}`}
                     className="group hover:bg-accent/50 transition-colors cursor-pointer border-b last:border-0"
                   >
                     <TableCell className="px-4 py-2">
@@ -222,11 +257,22 @@ export default function AzureResourcesPage() {
                               className="inline-flex items-center justify-center hover:opacity-70 transition-opacity"
                               onClick={(e) => e.stopPropagation()}
                             >
-                              <GitBranch className="h-4 w-4 text-blue-600" />
+                              {resource.gitRepository.provider === 'azuredevops' ? (
+                                <DiVisualstudio className="h-5 w-5 text-[#0078D4]" />
+                              ) : (
+                                <GitBranch className="h-4 w-4 text-blue-600" />
+                              )}
                             </a>
                           </TooltipTrigger>
                           <TooltipContent>
-                            <p className="text-xs">{resource.gitRepository.provider || 'Git'}</p>
+                            <p className="text-xs font-medium">
+                              {resource.gitRepository.provider === 'azuredevops' ? 'Azure DevOps' :
+                               resource.gitRepository.provider === 'github' ? 'GitHub' :
+                               resource.gitRepository.provider === 'gitlab' ? 'GitLab' : 'Git'}
+                            </p>
+                            {resource.gitRepository.projectName && (
+                              <p className="text-xs text-muted-foreground">Proyecto: {resource.gitRepository.projectName}</p>
+                            )}
                             {resource.gitRepository.branch && (
                               <p className="text-xs text-muted-foreground">Branch: {resource.gitRepository.branch}</p>
                             )}
@@ -234,6 +280,49 @@ export default function AzureResourcesPage() {
                         </Tooltip>
                       ) : (
                         <span className="text-muted-foreground/30">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="px-4 py-2">
+                      {resource.projectParticipants && resource.projectParticipants.length > 0 ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="flex -space-x-2 hover:space-x-1 transition-all">
+                              {resource.projectParticipants.slice(0, 5).map((participant, idx) => (
+                                <Avatar key={participant.id} className="h-7 w-7 border-2 border-background">
+                                  <AvatarImage src={participant.imageUrl} alt={participant.displayName} />
+                                  <AvatarFallback className="text-xs">
+                                    {participant.displayName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
+                                  </AvatarFallback>
+                                </Avatar>
+                              ))}
+                              {resource.projectParticipants.length > 5 && (
+                                <div className="h-7 w-7 rounded-full bg-muted border-2 border-background flex items-center justify-center">
+                                  <span className="text-xs text-muted-foreground">+{resource.projectParticipants.length - 5}</span>
+                                </div>
+                              )}
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs">
+                            <p className="text-xs font-medium mb-1">Participantes del proyecto ({resource.projectParticipants.length})</p>
+                            <div className="space-y-1">
+                              {resource.projectParticipants.slice(0, 10).map(participant => (
+                                <p key={participant.id} className="text-xs text-muted-foreground">
+                                  {participant.displayName}
+                                </p>
+                              ))}
+                              {resource.projectParticipants.length > 10 && (
+                                <p className="text-xs text-muted-foreground">
+                                  y {resource.projectParticipants.length - 10} más...
+                                </p>
+                              )}
+                            </div>
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : (
+                        <div className="flex items-center gap-2 text-muted-foreground/30">
+                          <Users className="h-4 w-4" />
+                          <span className="text-xs">-</span>
+                        </div>
                       )}
                     </TableCell>
                   </TableRow>
