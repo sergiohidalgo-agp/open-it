@@ -34,6 +34,9 @@ All libraries are battle-tested, enterprise-backed, and actively maintained:
 | **shadcn/ui** | Latest | Linear, Vercel, Cal.com | Component library (Radix UI) |
 | **Lucide React** | Latest | 10k+ stars, active maintenance | Icon system |
 | **Recharts** | Latest | Airbnb, Alibaba, Microsoft | Data visualization |
+| **Azure Cosmos DB** | 4.8.0 | Microsoft Azure | NoSQL database |
+| **Pino** | Latest | Fastify, Platformatic | High-performance logging |
+| **Zod** | 4.x | tRPC, Remix, Astro | Schema validation |
 
 ## 📁 Project Structure
 
@@ -76,6 +79,9 @@ All libraries are battle-tested, enterprise-backed, and actively maintained:
 ### Prerequisites
 - Node.js 20+ (LTS recommended)
 - npm 10+
+- Azure CLI (optional, for live Azure data)
+- Azure Cosmos DB account (optional, for database sync)
+- Azure DevOps PAT (optional, for DevOps integration)
 
 ### Quick Start
 
@@ -90,11 +96,31 @@ cd dashboard-nextjs
 # Install dependencies
 npm install
 
+# Configure environment variables (optional)
+cp .env.example .env.local
+# Edit .env.local with your Azure credentials
+
 # Start development server
 npm run dev
 ```
 
 The application will be available at **http://localhost:3000**
+
+### Environment Variables
+
+Create a `.env.local` file for optional integrations:
+
+```bash
+# Azure Cosmos DB (optional)
+AZURE_COSMOSDB_OPENIT=AccountEndpoint=https://...;AccountKey=...;
+COSMOS_DATABASE_NAME=openit
+COSMOS_LOG_LEVEL=warn
+
+# Azure DevOps (optional)
+AZURE_DEVOPS_PAT=your-personal-access-token
+```
+
+See [COSMOS_DB_SYNC.md](COSMOS_DB_SYNC.md) and [AZURE_DEVOPS_INTEGRATION.md](AZURE_DEVOPS_INTEGRATION.md) for detailed setup.
 
 ## 📜 Available Commands
 
@@ -136,18 +162,35 @@ Built with **shadcn/ui** (based on Radix UI primitives):
 - ✅ Maintenance scheduler
 - ✅ Dark/light mode support
 - ✅ Mobile-responsive design
+- ✅ Authentication system with login page
 - ✅ Azure Resources monitoring
+  - Real-time data from Azure CLI
+  - Azure DevOps integration
+  - Project participants display
+  - Service-specific icons
 - ✅ SQL Server performance monitoring
   - Top 15 SPs by CPU consumption
   - CPU vs Executions scatter plot
   - 24h execution patterns
+- ✅ Azure Cosmos DB integration
+  - Automatic database initialization
+  - Smart conflict detection
+  - Field-by-field conflict resolution
+  - Sync history tracking
+- ✅ Azure DevOps integration
+  - Repository metadata extraction
+  - Project participants tracking
+  - Build pipeline information
+- ✅ Error boundaries for graceful degradation
+- ✅ High-performance logging with Pino
+- ✅ Schema validation with Zod
 
 ### Coming Soon
-- [ ] Real-time data integration
-- [ ] Advanced data visualization
-- [ ] User authentication
-- [ ] API integration layer
-- [ ] Database connectivity
+- [ ] Real-time WebSocket updates
+- [ ] Advanced analytics dashboards
+- [ ] Role-based access control (RBAC)
+- [ ] Multi-tenant support
+- [ ] Automated alerting system
 
 ## 🔧 Adding Components
 
@@ -253,6 +296,9 @@ Todas las librerías están probadas en batalla, respaldadas por empresas y mant
 | **shadcn/ui** | Latest | Linear, Vercel, Cal.com | Librería de componentes (Radix UI) |
 | **Lucide React** | Latest | 10k+ estrellas, mantenimiento activo | Sistema de iconos |
 | **Recharts** | Latest | Airbnb, Alibaba, Microsoft | Visualización de datos |
+| **Azure Cosmos DB** | 4.8.0 | Microsoft Azure | Base de datos NoSQL |
+| **Pino** | Latest | Fastify, Platformatic | Logging de alto rendimiento |
+| **Zod** | 4.x | tRPC, Remix, Astro | Validación de schemas |
 
 ## 📁 Estructura del Proyecto
 
@@ -295,6 +341,9 @@ Todas las librerías están probadas en batalla, respaldadas por empresas y mant
 ### Prerequisitos
 - Node.js 20+ (se recomienda LTS)
 - npm 10+
+- Azure CLI (opcional, para datos en vivo de Azure)
+- Cuenta de Azure Cosmos DB (opcional, para sincronización de BD)
+- PAT de Azure DevOps (opcional, para integración DevOps)
 
 ### Inicio Rápido
 
@@ -309,11 +358,31 @@ cd dashboard-nextjs
 # Instalar dependencias
 npm install
 
+# Configurar variables de entorno (opcional)
+cp .env.example .env.local
+# Editar .env.local con tus credenciales de Azure
+
 # Iniciar servidor de desarrollo
 npm run dev
 ```
 
 La aplicación estará disponible en **http://localhost:3000**
+
+### Variables de Entorno
+
+Crea un archivo `.env.local` para integraciones opcionales:
+
+```bash
+# Azure Cosmos DB (opcional)
+AZURE_COSMOSDB_OPENIT=AccountEndpoint=https://...;AccountKey=...;
+COSMOS_DATABASE_NAME=openit
+COSMOS_LOG_LEVEL=warn
+
+# Azure DevOps (opcional)
+AZURE_DEVOPS_PAT=tu-personal-access-token
+```
+
+Ver [COSMOS_DB_SYNC.md](COSMOS_DB_SYNC.md) y [AZURE_DEVOPS_INTEGRATION.md](AZURE_DEVOPS_INTEGRATION.md) para configuración detallada.
 
 ## 📜 Comandos Disponibles
 
@@ -355,18 +424,35 @@ Construido con **shadcn/ui** (basado en primitivos Radix UI):
 - ✅ Programador de mantenimiento
 - ✅ Soporte modo claro/oscuro
 - ✅ Diseño mobile-responsive
+- ✅ Sistema de autenticación con página de login
 - ✅ Monitoreo de recursos Azure
+  - Datos en tiempo real desde Azure CLI
+  - Integración con Azure DevOps
+  - Visualización de participantes de proyectos
+  - Iconos específicos por servicio
 - ✅ Monitoreo de performance SQL Server
   - Top 15 SPs por consumo de CPU
   - Gráfico de dispersión CPU vs Ejecuciones
   - Patrones de ejecución 24h
+- ✅ Integración con Azure Cosmos DB
+  - Inicialización automática de base de datos
+  - Detección inteligente de conflictos
+  - Resolución de conflictos campo por campo
+  - Historial de sincronizaciones
+- ✅ Integración con Azure DevOps
+  - Extracción de metadata de repositorios
+  - Seguimiento de participantes de proyectos
+  - Información de pipelines de build
+- ✅ Error boundaries para degradación elegante
+- ✅ Logging de alto rendimiento con Pino
+- ✅ Validación de schemas con Zod
 
 ### Próximamente
-- [ ] Integración de datos en tiempo real
-- [ ] Visualización avanzada de datos
-- [ ] Autenticación de usuarios
-- [ ] Capa de integración API
-- [ ] Conectividad con base de datos
+- [ ] Actualizaciones en tiempo real con WebSocket
+- [ ] Dashboards de analítica avanzada
+- [ ] Control de acceso basado en roles (RBAC)
+- [ ] Soporte multi-tenant
+- [ ] Sistema de alertas automatizado
 
 ## 🔧 Agregando Componentes
 

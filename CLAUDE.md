@@ -40,6 +40,9 @@ This project uses a monorepo architecture with SOLID principles:
 - **Recharts**: Used by Airbnb, Alibaba, Microsoft for data visualization
 - **Azure React Icons**: Official Azure service icons library
 - **React Icons**: Popular icon library with 10k+ GitHub stars
+- **Azure Cosmos DB SDK**: Official Microsoft Azure NoSQL database client
+- **Pino**: High-performance logging library used by Fastify, Platformatic
+- **Zod**: TypeScript-first schema validation used by tRPC, Remix, Astro
 
 ### Code Quality Standards
 - **Efficient & Minimal**: Write less code that does more
@@ -148,6 +151,11 @@ The development server runs at http://localhost:3000
     - `app-sidebar.tsx` - Main sidebar navigation component with IT-focused menu items
     - `auth-guard.tsx` - Authentication guard for protected routes
     - `azure-service-icon.tsx` - Azure service icon mapper component
+    - `error-boundary.tsx` - Error boundary for graceful error handling
+    - `sync-button.tsx` - Cosmos DB sync trigger button
+    - `sync-conflicts-dialog.tsx` - Conflict resolution modal
+    - `sync-logs-terminal.tsx` - Sync logs display component
+    - `graceful-degradation.tsx` - Fallback UI component
     - `ui/` - shadcn/ui component library (card, badge, button, avatar, dropdown, sidebar, table, select, etc.)
   - `lib/` - Utility functions and data layers
     - `utils.ts` - Helper functions (cn utility for class merging)
@@ -156,12 +164,40 @@ The development server runs at http://localhost:3000
     - `data/` - Data layer and loaders
       - `sql-data-loader.ts` - SQL data loading utilities
       - `mock-sql-data.ts` - Mock SQL performance data
+    - `db/` - Cosmos DB integration layer
+      - `cosmos-client.ts` - Singleton Cosmos DB client
+      - `init.ts` - Database initialization and setup
+      - `schemas.ts` - Zod validation schemas
+      - `queries.ts` - Common database queries
+      - `sync-helpers.ts` - Sync logic and conflict detection
+    - `logger/` - Logging infrastructure
+      - `index.ts` - Pino logger configuration
+    - `services/` - Business logic services
+      - `azure-service.ts` - Azure resource service
+      - `sync-service.ts` - Cosmos DB sync service
     - `types/` - TypeScript type definitions
       - `azure.ts` - Azure resource types
       - `sql.ts` - SQL performance types
+      - `database.ts` - Database schema types
+      - `sync-logs.ts` - Sync log types
+    - `validation/` - Schema validation
+      - `azure-schemas.ts` - Zod schemas for Azure resources
+    - `utils/` - Additional utilities
+      - `retry.ts` - Retry logic for API calls
   - `hooks/` - Custom React hooks
     - `use-mobile.ts` - Mobile detection hook for responsive sidebar
   - `public/` - Static assets (SVG icons)
+  - `scripts/` - Azure CLI automation scripts
+    - `fetch-azure-resources.sh` - Fetch Azure resources data
+    - `extract-devops-metadata.sh` - Extract Azure DevOps metadata
+    - `enrich-with-participants.sh` - Fetch project participants
+    - `enrich-with-devops.sh` - Enrich resources with DevOps data
+  - `data/` - Generated data files
+    - `azure-raw.json` - Raw Azure resources
+    - `azure-devops-mappings.json` - DevOps project mappings
+    - `azure-participants.json` - Project participants data
+  - `middleware.ts` - Next.js middleware for authentication
+  - `.env.example` - Environment variables template
   - `next.config.ts` - Next.js configuration
   - `tsconfig.json` - TypeScript configuration with `@/*` path alias
   - `eslint.config.mjs` - ESLint configuration using Next.js presets
@@ -216,9 +252,9 @@ The application uses a persistent sidebar layout:
 ### Navigation Structure
 
 Main sections in sidebar:
-- **Principal**: Dashboard, Servidores, Usuarios, Almacenamiento, Red, Seguridad
-- **Herramientas**: Monitoreo, Bases de Datos, Reportes, Tickets
-- **Cloud**: Azure Resources - Monitoring and management of Azure infrastructure
+- **Dashboard**: Main overview page with KPIs and metrics
+- **Recursos Azure**: Azure resources monitoring with DevOps integration
+- **SQL Performance**: SQL Server performance monitoring and analytics
 
 ## Dashboard Features
 
@@ -249,11 +285,43 @@ SQL Server performance monitoring dashboard:
 - **Data Visualization**: Interactive charts using Recharts library
 
 ### Authentication
-- **Login Page** (`app/login/page.tsx`): User authentication interface
+- **Login Page** (`app/login/page.tsx`): User authentication interface with email/password and SSO
 - **Auth Guard** (`components/auth-guard.tsx`): Route protection for authenticated areas
-- Session-based authentication ready for backend integration
+- **Middleware** (`middleware.ts`): Server-side route protection
+- Demo credentials: any email with password `demo123`
+- SSO simulation with Microsoft branding
+- Session stored in localStorage (mock implementation)
 
-All data currently uses mock data for UI demonstration with integration points ready for production APIs.
+### Azure Cosmos DB Integration
+- **Automatic Initialization**: Database and containers created on first sync
+- **Smart Sync**: Detects new, updated, and deleted resources
+- **Conflict Detection**: Field-by-field comparison between Azure and database
+- **Conflict Resolution**: User-driven resolution with preview
+- **Sync History**: Complete audit trail of all synchronizations
+- **API Endpoints**:
+  - `POST /api/sync/preview` - Preview changes without applying
+  - `POST /api/sync/execute` - Execute sync with conflict resolutions
+
+### Azure DevOps Integration
+- **Repository Metadata**: Extracts Git repository information from App Services
+- **Project Participants**: Displays team members with avatars
+- **Build Pipelines**: Links to Azure DevOps build definitions
+- **VSTSRM Metadata**: Uses Azure App Service metadata API for DevOps info
+- **Scripts**: Automated data collection via Azure CLI and DevOps REST API
+
+### Logging System
+- **Pino Logger**: High-performance structured logging
+- **Pretty Printing**: Human-readable logs in development
+- **Log Levels**: Configurable via environment variables
+- **Structured Data**: JSON-formatted logs for production
+
+### Error Handling
+- **Error Boundaries**: Graceful degradation for component errors
+- **Fallback UI**: User-friendly error messages
+- **Retry Logic**: Automatic retry for transient failures
+- **Validation**: Zod schemas for runtime type safety
+
+All data can use either live Azure data (via CLI/API) or mock data for demonstration.
 
 ## Styling
 
@@ -272,6 +340,28 @@ npx shadcn@latest add form
 npx shadcn@latest add dialog
 npx shadcn@latest add tabs
 ```
+
+## Environment Variables
+
+Create a `.env.local` file in the `dashboard-nextjs/` directory:
+
+```bash
+# Azure Cosmos DB (optional)
+AZURE_COSMOSDB_OPENIT=AccountEndpoint=https://your-account.documents.azure.com:443/;AccountKey=your-key;
+COSMOS_DATABASE_NAME=openit
+COSMOS_LOG_LEVEL=warn
+
+# Azure DevOps (optional)
+AZURE_DEVOPS_PAT=your-personal-access-token
+```
+
+**Required Permissions for Azure DevOps PAT:**
+- Build (Read)
+- Code (Read)
+- Project and Team (Read)
+- Identity (Read)
+
+See [COSMOS_DB_SYNC.md](../COSMOS_DB_SYNC.md) and [AZURE_DEVOPS_INTEGRATION.md](../AZURE_DEVOPS_INTEGRATION.md) for detailed configuration.
 
 ## Architecture Patterns
 
@@ -292,6 +382,33 @@ The application uses Next.js route groups for organizing routes:
 - **Page Components** (`app/`): Route-level components that compose features
 
 ### Integration Points
-- **Azure Integration**: Uses Azure CLI commands via API routes for real-time data
+- **Azure Integration**: Uses Azure CLI commands and REST API for real-time data
+- **Azure DevOps**: REST API integration for repository and team data
+- **Cosmos DB**: Full CRUD operations with conflict resolution
 - **SQL Integration**: Ready for SQL Server connection via queries
 - **API Routes** (`app/api/`): Backend endpoints for data fetching and processing
+  - `/api/sync/preview` - Preview sync changes
+  - `/api/sync/execute` - Execute database sync
+
+### Data Collection Scripts
+
+Automated scripts for Azure data collection:
+
+```bash
+# Fetch Azure resources
+./scripts/fetch-azure-resources.sh
+
+# Extract DevOps metadata from App Services
+./scripts/extract-devops-metadata.sh
+
+# Fetch project participants from Azure DevOps
+./scripts/enrich-with-participants.sh
+
+# Complete enrichment pipeline
+./scripts/enrich-with-devops.sh
+```
+
+**Prerequisites:**
+- Azure CLI installed and authenticated
+- Azure DevOps PAT configured in environment
+- Appropriate permissions on Azure subscriptions
