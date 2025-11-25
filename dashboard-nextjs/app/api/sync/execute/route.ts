@@ -11,18 +11,10 @@ import { readFile } from 'fs/promises'
 import { join } from 'path'
 import type { AzureRawData } from '@/lib/types/azure'
 import { transformAzureResources } from '@/lib/azure/transformer'
-import { getAllResources, upsertResource, deleteResource } from '@/lib/db/queries'
-import {
-  determineSyncActions,
-  calculateSyncStats,
-  azureResourceToDBResource,
-  applyConflictResolutions,
-} from '@/lib/db/sync-helpers'
-import { saveSyncHistory } from '@/lib/db/queries'
 import { initializeDatabase } from '@/lib/db/init'
-import type { SyncAPIResponse, ConflictResolution, SyncOptions } from '@/lib/types/database'
-import type { SyncHistory } from '@/lib/db/schemas'
+import type { SyncAPIResponse, ConflictResolution } from '@/lib/types/database'
 import { syncLogger, logError } from '@/lib/logger'
+import { syncService } from '@/lib/services/sync-service'
 
 /**
  * Body del request
@@ -32,6 +24,10 @@ interface ExecuteSyncRequest {
   userId?: string
 }
 
+/**
+ * POST /api/sync/execute
+ * Ejecuta sincronización desde archivo azure-raw.json
+ */
 export async function POST(request: NextRequest) {
   const startTime = Date.now()
 
@@ -55,8 +51,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 3. Leer recursos de Azure
-    syncLogger.info('Loading Azure resources')
+    // 3. Leer recursos de Azure desde archivo
+    syncLogger.info('Loading Azure resources from file')
     const dataPath = join(process.cwd(), 'data', 'azure-raw.json')
 
     let azureData: AzureRawData
@@ -64,8 +60,8 @@ export async function POST(request: NextRequest) {
     try {
       const fileContent = await readFile(dataPath, 'utf-8')
       azureData = JSON.parse(fileContent)
-    } catch (error: any) {
-      if (error.code === 'ENOENT') {
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         return NextResponse.json(
           {
             success: false,
@@ -78,161 +74,54 @@ export async function POST(request: NextRequest) {
       throw error
     }
 
-    // 4. Transformar y obtener recursos
-    const azureResources = transformAzureResources(azureData.resources, azureData.subscription)
-    const dbResources = await getAllResources()
+    // 4. Transformar recursos
+    const azureResources = transformAzureResources(
+      azureData.resources,
+      azureData.subscription
+    )
 
-    syncLogger.info({ azureCount: azureResources.length, dbCount: dbResources.length }, 'Resources loaded')
+    syncLogger.info(
+      { azureResourceCount: azureResources.length },
+      'Azure resources loaded'
+    )
 
-    // 5. Determinar acciones
-    syncLogger.info('Determining sync actions')
-    const actions = determineSyncActions(azureResources, dbResources, conflictResolutions)
-
-    // Estadísticas para tracking
-    let resourcesCreated = 0
-    let resourcesUpdated = 0
-    let resourcesDeleted = 0
-    let resourcesSkipped = 0
-    const errors: string[] = []
-
-    // Crear mapa de recursos de Azure para búsqueda rápida
-    const azureResourceMap = new Map(azureResources.map((r) => [r.name, r]))
-    const dbResourceMap = new Map(dbResources.map((r) => [r.name, r]))
-
-    // 6. Ejecutar acciones de sincronización
-    syncLogger.info({ actionCount: actions.length }, 'Executing sync actions')
-
-    for (const action of actions) {
-      try {
-        const azureResource = azureResourceMap.get(action.resourceName)
-
-        switch (action.operation) {
-          case 'create': {
-            if (!azureResource) {
-              errors.push(`Resource not found in Azure: ${action.resourceName}`)
-              continue
-            }
-
-            // Crear nuevo recurso en BD
-            const dbResource = azureResourceToDBResource(azureResource, 'manual')
-            await upsertResource(dbResource)
-            resourcesCreated++
-            syncLogger.debug({ resource: action.resourceName }, 'Resource created')
-            break
-          }
-
-          case 'update': {
-            if (!azureResource) {
-              errors.push(`Resource not found in Azure: ${action.resourceName}`)
-              continue
-            }
-
-            const dbResource = dbResourceMap.get(action.resourceName)
-
-            if (!dbResource) {
-              errors.push(`Resource not found in database: ${action.resourceName}`)
-              continue
-            }
-
-            // Aplicar resoluciones de conflictos si las hay
-            let updatedResource: any
-
-            if (conflictResolutions?.[action.resourceName]) {
-              updatedResource = applyConflictResolutions(
-                azureResource,
-                dbResource,
-                conflictResolutions[action.resourceName]
-              )
-            } else {
-              // Sin conflictos, actualizar completamente
-              updatedResource = azureResourceToDBResource(azureResource, 'manual')
-              updatedResource.createdInDbAt = dbResource.createdInDbAt // Preservar fecha de creación
-            }
-
-            await upsertResource(updatedResource)
-            resourcesUpdated++
-            syncLogger.debug({ resource: action.resourceName }, 'Resource updated')
-            break
-          }
-
-          case 'delete': {
-            // Eliminar recurso de BD
-            await deleteResource(action.resourceName)
-            resourcesDeleted++
-            syncLogger.debug({ resource: action.resourceName }, 'Resource deleted')
-            break
-          }
-
-          case 'skip': {
-            resourcesSkipped++
-            syncLogger.debug({ resource: action.resourceName, reason: action.reason }, 'Resource skipped')
-            break
-          }
-        }
-      } catch (error) {
-        const errorMsg = `Failed to ${action.operation} ${action.resourceName}: ${error instanceof Error ? error.message : 'Unknown error'}`
-        errors.push(errorMsg)
-        logError(syncLogger, error, 'Sync action failed', {
-          operation: action.operation,
-          resource: action.resourceName
-        })
+    // 5. Ejecutar sincronización usando el servicio
+    const syncResult = await syncService.sync(
+      azureResources,
+      {
+        conflictResolutions,
+        syncSource: 'manual',
+        userId,
       }
-    }
+    )
 
     const durationMs = Date.now() - startTime
 
-    // 7. Calcular estadísticas finales
-    const stats = calculateSyncStats(actions)
-
-    // 8. Guardar en historial
-    const historyId = `sync-${Date.now()}`
-    const syncHistory: SyncHistory = {
-      id: historyId,
-      date: new Date().toISOString().split('T')[0],
-      timestamp: new Date().toISOString(),
-      syncType: conflictResolutions ? 'conflict-resolution' : 'full',
-      source: 'ui-button',
-      userId,
-      status: errors.length === 0 ? 'success' : errors.length < actions.length ? 'partial' : 'failed',
-      stats: {
-        resourcesProcessed: actions.length,
-        resourcesCreated,
-        resourcesUpdated,
-        resourcesDeleted,
-        resourcesSkipped,
-        conflictsDetected: stats.conflicts,
-        conflictsResolved: stats.conflictsResolved,
+    syncLogger.info(
+      {
         durationMs,
+        created: syncResult.stats.resourcesCreated,
+        updated: syncResult.stats.resourcesUpdated,
+        deleted: syncResult.stats.resourcesDeleted,
       },
-      errors: errors.length > 0 ? errors : undefined,
-      details: `Synced ${resourcesCreated} new, ${resourcesUpdated} updated, ${resourcesDeleted} deleted`,
-    }
+      'Sync completed'
+    )
 
-    await saveSyncHistory(syncHistory)
-
-    syncLogger.info({
-      durationMs,
-      created: resourcesCreated,
-      updated: resourcesUpdated,
-      deleted: resourcesDeleted,
-      skipped: resourcesSkipped
-    }, 'Sync completed')
-
-    // 9. Retornar resultado
+    // 6. Retornar resultado
     return NextResponse.json({
-      success: errors.length === 0,
+      success: syncResult.success,
       data: {
         summary: {
-          totalResources: actions.length,
-          newResources: resourcesCreated,
-          updatedResources: resourcesUpdated,
-          deletedResources: resourcesDeleted,
-          unchangedResources: resourcesSkipped,
-          conflicts: stats.conflictsPending,
+          totalResources: syncResult.stats.resourcesProcessed,
+          newResources: syncResult.stats.resourcesCreated,
+          updatedResources: syncResult.stats.resourcesUpdated,
+          deletedResources: syncResult.stats.resourcesDeleted,
+          unchangedResources: syncResult.stats.resourcesSkipped,
+          conflicts: 0, // TODO: Implementar detección de conflictos
         },
-        historyId,
+        historyId: syncResult.historyId,
       },
-      error: errors.length > 0 ? errors.join('; ') : undefined,
+      error: syncResult.errors?.join('; '),
       timestamp: new Date().toISOString(),
     } as SyncAPIResponse)
   } catch (error) {

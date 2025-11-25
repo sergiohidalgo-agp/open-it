@@ -7,107 +7,62 @@
  */
 
 import { NextRequest } from 'next/server'
-import { spawn } from 'child_process'
-import type { AzureRawData } from '@/lib/types/azure'
 import { transformAzureResources } from '@/lib/azure/transformer'
-import { getAllResources, upsertResource, deleteResource, saveSyncHistory } from '@/lib/db/queries'
-import { determineSyncActions, azureResourceToDBResource, applyConflictResolutions } from '@/lib/db/sync-helpers'
 import { initializeDatabase } from '@/lib/db/init'
-import type { SyncHistory } from '@/lib/db/schemas'
 import { syncLogger, logError } from '@/lib/logger'
-import {
-  AzureAccountSchema,
-  AzureResourceRawSchema,
-  parseJsonSafe,
-} from '@/lib/validation/azure-schemas'
-import { z } from 'zod'
+import { azureService } from '@/lib/services/azure-service'
+import { syncService } from '@/lib/services/sync-service'
 
 export const dynamic = 'force-dynamic'
 
-function sendEvent(controller: ReadableStreamDefaultController, event: string, data: any) {
+/**
+ * Tipo de evento SSE
+ */
+type SSEEvent = 'log' | 'complete' | 'error'
+
+/**
+ * Nivel de log
+ */
+type LogLevel = 'info' | 'success' | 'warning' | 'error' | 'debug'
+
+/**
+ * Envía un evento SSE al cliente
+ */
+function sendEvent(
+  controller: ReadableStreamDefaultController,
+  event: SSEEvent,
+  data: unknown
+) {
   try {
     const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
     controller.enqueue(new TextEncoder().encode(message))
   } catch (error) {
-    // Controller ya está cerrado, ignorar
     syncLogger.warn({ event }, 'Controller closed, cannot send event')
   }
 }
 
-function execCommandWithProgress(
-  command: string,
-  args: string[],
+/**
+ * Envía un log al cliente
+ */
+function sendLog(
   controller: ReadableStreamDefaultController,
-  timeoutMs: number = 120000 // 2 minutos default
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const process = spawn(command, args)
-    let stdout = ''
-    let stderr = ''
-    const progressInterval = 3000 // Actualizar cada 3 segundos
-
-    const progressMessages = [
-      '   ⏳ Consultando Azure API...',
-      '   ⏳ Obteniendo recursos (esto puede tomar ~1 minuto)...',
-      '   ⏳ Procesando respuesta...',
-      '   ⏳ Aún trabajando...',
-    ]
-    let progressIndex = 0
-    let elapsedSeconds = 0
-
-    const progressTimer = setInterval(() => {
-      elapsedSeconds += 3
-      if (progressIndex < progressMessages.length) {
-        sendEvent(controller, 'log', {
-          level: 'info',
-          message: progressMessages[progressIndex]
-        })
-        progressIndex++
-      } else {
-        sendEvent(controller, 'log', {
-          level: 'info',
-          message: `   ⏳ Procesando... (${elapsedSeconds}s)`
-        })
-      }
-    }, progressInterval)
-
-    // Timeout para evitar esperas infinitas
-    const timeout = setTimeout(() => {
-      clearInterval(progressTimer)
-      process.kill()
-      reject(new Error(`Command timeout after ${timeoutMs / 1000}s`))
-    }, timeoutMs)
-
-    process.stdout.on('data', (data) => {
-      stdout += data.toString()
-    })
-
-    process.stderr.on('data', (data) => {
-      stderr += data.toString()
-    })
-
-    process.on('close', (code) => {
-      clearTimeout(timeout)
-      clearInterval(progressTimer)
-      if (code === 0) {
-        resolve(stdout)
-      } else {
-        reject(new Error(stderr || `Command failed with code ${code}`))
-      }
-    })
-
-    process.on('error', (error) => {
-      clearTimeout(timeout)
-      clearInterval(progressTimer)
-      reject(error)
-    })
-  })
+  level: LogLevel,
+  message: string,
+  meta?: { resource?: string; operation?: string }
+) {
+  sendEvent(controller, 'log', { level, message, ...meta })
 }
 
+/**
+ * GET /api/sync/stream
+ * Ejecuta sincronización con logs en tiempo real
+ */
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const conflictResolutionsParam = searchParams.get('conflictResolutions')
-  const conflictResolutions = conflictResolutionsParam ? JSON.parse(conflictResolutionsParam) : undefined
+  const conflictResolutions = conflictResolutionsParam
+    ? JSON.parse(conflictResolutionsParam)
+    : undefined
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -115,281 +70,137 @@ export async function GET(request: NextRequest) {
 
       try {
         // 1. Inicializar BD
-        sendEvent(controller, 'log', { level: 'info', message: '🔍 Inicializando base de datos...' })
+        sendLog(controller, 'info', '🔍 Inicializando base de datos...')
         const dbInit = await initializeDatabase()
 
         if (!dbInit.success) {
-          sendEvent(controller, 'log', { level: 'error', message: `❌ Error al inicializar BD: ${dbInit.error}` })
+          sendLog(controller, 'error', `❌ Error al inicializar BD: ${dbInit.error}`)
           sendEvent(controller, 'error', { error: dbInit.error })
           controller.close()
           return
         }
-        sendEvent(controller, 'log', { level: 'success', message: '✅ Base de datos inicializada' })
+        sendLog(controller, 'success', '✅ Base de datos inicializada')
 
-        // 2. Obtener información de suscripción de Azure
-        sendEvent(controller, 'log', { level: 'info', message: '☁️  Obteniendo información de suscripción de Azure...' })
-        sendEvent(controller, 'log', { level: 'info', message: '   $ az account show --output json' })
-        let subscription: { subscriptionId: string; subscriptionName: string; tenantId: string }
+        // 2. Obtener información de Azure
+        sendLog(controller, 'info', '☁️  Obteniendo información de suscripción de Azure...')
+        sendLog(controller, 'info', '   $ az account show --output json')
 
-        try {
-          const subStdout = await execCommandWithProgress('az', ['account', 'show', '--output', 'json'], controller)
-
-          // Validar respuesta con Zod
-          const parseResult = parseJsonSafe(subStdout, AzureAccountSchema)
-          if (!parseResult.success) {
-            syncLogger.error({ error: parseResult.error }, 'Invalid Azure account data')
-            sendEvent(controller, 'log', { level: 'error', message: `❌ Datos inválidos de Azure CLI: ${parseResult.error}` })
-            sendEvent(controller, 'error', { error: parseResult.error })
-            controller.close()
-            return
-          }
-
-          const subData = parseResult.data
-          subscription = {
-            subscriptionId: subData.id,
-            subscriptionName: subData.name,
-            tenantId: subData.tenantId
-          }
-          sendEvent(controller, 'log', { level: 'success', message: `✅ Suscripción: ${subscription.subscriptionName}` })
-        } catch (error: any) {
-          logError(syncLogger, error, 'Error obteniendo suscripción')
-          sendEvent(controller, 'log', { level: 'error', message: `❌ Error obteniendo suscripción: ${error.message}` })
-          sendEvent(controller, 'error', { error: error.message })
-          controller.close()
-          return
-        }
-
-        // 3. Ejecutar Azure CLI para obtener recursos (optimizado con query)
-        sendEvent(controller, 'log', { level: 'info', message: '📊 Ejecutando Azure CLI para obtener recursos...' })
-        sendEvent(controller, 'log', { level: 'info', message: '   $ az resource list --query "[].{...}" --output json' })
-        sendEvent(controller, 'log', { level: 'info', message: '   ⏳ Optimizado: solo campos necesarios...' })
-
-        // Query JMESPath optimizada: solo campos que realmente usamos
-        const query = `[].{
-          id: id,
-          name: name,
-          type: type,
-          location: location,
-          resourceGroup: resourceGroup,
-          tags: tags,
-          kind: kind,
-          managedBy: managedBy,
-          createdTime: createdTime,
-          sku: sku,
-          properties: properties.{
-            provisioningState: provisioningState,
-            powerState: powerState,
-            state: state,
-            creationDate: creationDate,
-            hardwareProfile: hardwareProfile.{vmSize: vmSize}
-          }
-        }`
-
-        let azureData: AzureRawData
-        try {
-          const stdout = await execCommandWithProgress(
-            'az',
-            ['resource', 'list', '--query', query, '--output', 'json'],
-            controller
-          )
-
-          // Validar recursos con Zod
-          const resourcesParseResult = parseJsonSafe(stdout, z.array(AzureResourceRawSchema))
-          if (!resourcesParseResult.success) {
-            syncLogger.error({ error: resourcesParseResult.error }, 'Invalid Azure resources data')
-            sendEvent(controller, 'log', { level: 'error', message: `❌ Datos inválidos de recursos Azure: ${resourcesParseResult.error}` })
-            sendEvent(controller, 'error', { error: resourcesParseResult.error })
-            controller.close()
-            return
-          }
-
-          const resources = resourcesParseResult.data
-          azureData = {
-            subscription,
-            resources,
-            timestamp: new Date().toISOString()
-          }
-
-          sendEvent(controller, 'log', { level: 'success', message: `✅ ${resources.length} recursos obtenidos de Azure` })
-        } catch (error: any) {
-          logError(syncLogger, error, 'Error ejecutando Azure CLI')
-          sendEvent(controller, 'log', { level: 'error', message: `❌ Error ejecutando Azure CLI: ${error.message}` })
-          sendEvent(controller, 'error', { error: error.message })
-          controller.close()
-          return
-        }
-
-        // 4. Transformar recursos
-        sendEvent(controller, 'log', { level: 'info', message: '🔄 Transformando recursos Azure...' })
-        const azureResources = transformAzureResources(azureData.resources, azureData.subscription)
-        sendEvent(controller, 'log', { level: 'success', message: `✅ ${azureResources.length} recursos transformados` })
-
-        // 5. Obtener recursos de BD
-        sendEvent(controller, 'log', { level: 'info', message: '💾 Consultando Cosmos DB...' })
-        const dbResources = await getAllResources()
-        sendEvent(controller, 'log', { level: 'success', message: `✅ ${dbResources.length} recursos en BD` })
-
-        // 6. Determinar acciones
-        sendEvent(controller, 'log', { level: 'info', message: '📋 Calculando diferencias...' })
-        const actions = determineSyncActions(azureResources, dbResources, conflictResolutions)
-        
-        const creates = actions.filter(a => a.operation === 'create').length
-        const updates = actions.filter(a => a.operation === 'update').length
-        const deletes = actions.filter(a => a.operation === 'delete').length
-        const skips = actions.filter(a => a.operation === 'skip').length
-
-        sendEvent(controller, 'log', { 
-          level: 'info', 
-          message: `📊 Acciones: ${creates} crear, ${updates} actualizar, ${deletes} eliminar, ${skips} omitir` 
+        const subscriptionResult = await azureService.getSubscription({
+          onProgress: (message) => sendLog(controller, 'info', `   ⏳ ${message}`)
         })
 
-        // 7. Ejecutar acciones
-        let resourcesCreated = 0
-        let resourcesUpdated = 0
-        let resourcesDeleted = 0
-        let resourcesSkipped = 0
-        const errors: string[] = []
+        if (!subscriptionResult.success) {
+          sendLog(controller, 'error', `❌ Error obteniendo suscripción: ${subscriptionResult.error}`)
+          sendEvent(controller, 'error', { error: subscriptionResult.error })
+          controller.close()
+          return
+        }
 
-        const azureResourceMap = new Map(azureResources.map(r => [r.name, r]))
-        const dbResourceMap = new Map(dbResources.map(r => [r.name, r]))
+        const subscription = subscriptionResult.data
+        sendLog(controller, 'success', `✅ Suscripción: ${subscription.name}`)
 
-        sendEvent(controller, 'log', { level: 'info', message: '🚀 Iniciando sincronización...' })
+        // 3. Obtener recursos de Azure
+        sendLog(controller, 'info', '📊 Ejecutando Azure CLI para obtener recursos...')
+        sendLog(controller, 'info', '   $ az resource list --query "[].{...}" --output json')
+        sendLog(controller, 'info', '   ⏳ Optimizado: solo campos necesarios...')
 
-        for (const action of actions) {
-          try {
-            const azureResource = azureResourceMap.get(action.resourceName)
+        const resourcesResult = await azureService.getResources({
+          onProgress: (message) => sendLog(controller, 'info', `   ⏳ ${message}`)
+        })
 
-            switch (action.operation) {
-              case 'create': {
-                if (!azureResource) continue
-                const dbResource = azureResourceToDBResource(azureResource, 'manual')
-                await upsertResource(dbResource)
-                resourcesCreated++
-                sendEvent(controller, 'log', { 
-                  level: 'success', 
-                  message: `  ✅ Creado: ${action.resourceName}`,
-                  resource: action.resourceName,
-                  operation: 'create'
-                })
-                break
-              }
+        if (!resourcesResult.success) {
+          sendLog(controller, 'error', `❌ Error ejecutando Azure CLI: ${resourcesResult.error}`)
+          sendEvent(controller, 'error', { error: resourcesResult.error })
+          controller.close()
+          return
+        }
 
-              case 'update': {
-                if (!azureResource) continue
-                const dbResource = dbResourceMap.get(action.resourceName)
-                if (!dbResource) continue
+        const rawResources = resourcesResult.data
+        sendLog(controller, 'success', `✅ ${rawResources.length} recursos obtenidos de Azure`)
 
-                let updatedResource: any
-                if (conflictResolutions?.[action.resourceName]) {
-                  updatedResource = applyConflictResolutions(azureResource, dbResource, conflictResolutions[action.resourceName])
-                } else {
-                  updatedResource = azureResourceToDBResource(azureResource, 'manual')
-                  updatedResource.createdInDbAt = dbResource.createdInDbAt
-                }
+        // 4. Transformar recursos
+        sendLog(controller, 'info', '🔄 Transformando recursos Azure...')
+        const azureResources = transformAzureResources(rawResources as any, {
+          subscriptionId: subscription.id,
+          subscriptionName: subscription.name,
+          tenantId: subscription.tenantId,
+        })
+        sendLog(controller, 'success', `✅ ${azureResources.length} recursos transformados`)
 
-                await upsertResource(updatedResource)
-                resourcesUpdated++
-                sendEvent(controller, 'log', { 
-                  level: 'success', 
-                  message: `  ✅ Actualizado: ${action.resourceName}`,
-                  resource: action.resourceName,
-                  operation: 'update'
-                })
-                break
-              }
+        // 5. Consultar Cosmos DB
+        sendLog(controller, 'info', '💾 Consultando Cosmos DB...')
 
-              case 'delete': {
-                await deleteResource(action.resourceName)
-                resourcesDeleted++
-                sendEvent(controller, 'log', { 
-                  level: 'warning', 
-                  message: `  🗑️  Eliminado: ${action.resourceName}`,
-                  resource: action.resourceName,
-                  operation: 'delete'
-                })
-                break
-              }
+        // 6. Ejecutar sincronización
+        sendLog(controller, 'info', '🚀 Iniciando sincronización...')
 
-              case 'skip': {
-                resourcesSkipped++
-                sendEvent(controller, 'log', { 
-                  level: 'info', 
-                  message: `  ⏭️  Omitido: ${action.resourceName} (${action.reason})`,
-                  resource: action.resourceName,
-                  operation: 'skip'
-                })
-                break
-              }
+        const syncResult = await syncService.sync(
+          azureResources,
+          { conflictResolutions, syncSource: 'manual' },
+          (progress) => {
+            const icons = {
+              create: '✅',
+              update: '✅',
+              delete: '🗑️',
+              skip: '⏭️',
             }
-          } catch (error) {
-            const errorMsg = `${action.operation} ${action.resourceName}: ${error instanceof Error ? error.message : 'Error'}`
-            errors.push(errorMsg)
-            sendEvent(controller, 'log', { 
-              level: 'error', 
-              message: `  ❌ ${errorMsg}`,
-              resource: action.resourceName,
-              operation: action.operation
+            const labels = {
+              create: 'Creado',
+              update: 'Actualizado',
+              delete: 'Eliminado',
+              skip: 'Omitido',
+            }
+            const levels: Record<typeof progress.operation, LogLevel> = {
+              create: 'success',
+              update: 'success',
+              delete: 'warning',
+              skip: 'info',
+            }
+
+            const message = progress.reason
+              ? `  ${icons[progress.operation]} ${labels[progress.operation]}: ${progress.resourceName} (${progress.reason})`
+              : `  ${icons[progress.operation]} ${labels[progress.operation]}: ${progress.resourceName}`
+
+            sendLog(controller, levels[progress.operation], message, {
+              resource: progress.resourceName,
+              operation: progress.operation,
             })
           }
-        }
+        )
 
         const durationMs = Date.now() - startTime
 
-        // 8. Guardar historial
-        const historyId = `sync-${Date.now()}`
-        const syncHistory: SyncHistory = {
-          id: historyId,
-          date: new Date().toISOString().split('T')[0],
-          timestamp: new Date().toISOString(),
-          syncType: conflictResolutions ? 'conflict-resolution' : 'full',
-          source: 'ui-stream',
-          status: errors.length === 0 ? 'success' : errors.length < actions.length ? 'partial' : 'failed',
-          stats: {
-            resourcesProcessed: actions.length,
-            resourcesCreated,
-            resourcesUpdated,
-            resourcesDeleted,
-            resourcesSkipped,
-            conflictsDetected: 0,
-            conflictsResolved: 0,
-            durationMs,
-          },
-          errors: errors.length > 0 ? errors : undefined,
-          details: `Synced ${resourcesCreated} new, ${resourcesUpdated} updated, ${resourcesDeleted} deleted`,
-        }
+        // 7. Logs de resumen
+        sendLog(
+          controller,
+          'success',
+          `✅ Sincronización completada en ${(durationMs / 1000).toFixed(2)}s`
+        )
+        sendLog(
+          controller,
+          'info',
+          `📊 Resumen: ${syncResult.stats.resourcesCreated} creados, ${syncResult.stats.resourcesUpdated} actualizados, ${syncResult.stats.resourcesDeleted} eliminados`
+        )
 
-        await saveSyncHistory(syncHistory)
-
-        sendEvent(controller, 'log', { 
-          level: 'success', 
-          message: `✅ Sincronización completada en ${(durationMs / 1000).toFixed(2)}s` 
-        })
-        sendEvent(controller, 'log', { 
-          level: 'info', 
-          message: `📊 Resumen: ${resourcesCreated} creados, ${resourcesUpdated} actualizados, ${resourcesDeleted} eliminados` 
-        })
-
-        // 9. Enviar resultado final
+        // 8. Enviar resultado final
         sendEvent(controller, 'complete', {
-          success: errors.length === 0,
+          success: syncResult.success,
           summary: {
-            totalResources: actions.length,
-            newResources: resourcesCreated,
-            updatedResources: resourcesUpdated,
-            deletedResources: resourcesDeleted,
-            unchangedResources: resourcesSkipped,
-            durationMs,
+            totalResources: syncResult.stats.resourcesProcessed,
+            newResources: syncResult.stats.resourcesCreated,
+            updatedResources: syncResult.stats.resourcesUpdated,
+            deletedResources: syncResult.stats.resourcesDeleted,
+            unchangedResources: syncResult.stats.resourcesSkipped,
+            durationMs: syncResult.stats.durationMs,
           },
-          historyId,
-          errors: errors.length > 0 ? errors : undefined,
+          historyId: syncResult.historyId,
+          errors: syncResult.errors,
         })
 
       } catch (error) {
-        sendEvent(controller, 'log', { 
-          level: 'error', 
-          message: `❌ Error fatal: ${error instanceof Error ? error.message : 'Error desconocido'}` 
-        })
-        sendEvent(controller, 'error', { error: error instanceof Error ? error.message : 'Error desconocido' })
+        const errorMessage = error instanceof Error ? error.message : 'Error desconocido'
+        sendLog(controller, 'error', `❌ Error fatal: ${errorMessage}`)
+        sendEvent(controller, 'error', { error: errorMessage })
+        logError(syncLogger, error, 'Stream sync failed')
       } finally {
         controller.close()
       }

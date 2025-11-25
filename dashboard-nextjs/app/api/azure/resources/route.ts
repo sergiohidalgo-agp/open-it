@@ -9,6 +9,7 @@
 import { NextResponse } from 'next/server'
 import { getAllResources, getLastSyncHistory } from '@/lib/db/queries'
 import type { AzureResourcesResponse } from '@/lib/types/azure'
+import { dbResourceToAzureResource } from '@/lib/db/sync-helpers'
 
 export const dynamic = 'force-dynamic'
 
@@ -21,20 +22,23 @@ export async function GET() {
     // Leer recursos desde Cosmos DB
     const dbResources = await getAllResources()
 
+    // Convertir a formato AzureResource
+    const azureResources = dbResources.map(dbResourceToAzureResource)
+
     // Obtener última sincronización
     const lastSync = await getLastSyncHistory()
 
     // Obtener lista única de suscripciones
     const subscriptions = Array.from(
-      new Set(dbResources.map((r) => r.subscription))
+      new Set(azureResources.map((r) => r.subscription))
     )
 
     // Preparar respuesta
     const response: AzureResourcesResponse = {
       success: true,
-      data: dbResources,
+      data: azureResources,
       metadata: {
-        total: dbResources.length,
+        total: azureResources.length,
         subscriptions,
         lastUpdated: lastSync?.timestamp || new Date().toISOString(),
         lastSyncStatus: lastSync?.status,
