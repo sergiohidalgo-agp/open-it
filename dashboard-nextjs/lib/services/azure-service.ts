@@ -15,6 +15,7 @@ import {
   type AzureResourceRaw,
 } from '@/lib/validation/azure-schemas'
 import { azureLogger, logError } from '@/lib/logger'
+import { withRetry, RetryPredicates } from '@/lib/utils/retry'
 
 /**
  * Resultado de ejecución de comando Azure
@@ -118,9 +119,20 @@ export class AzureService {
     try {
       azureLogger.info('Getting Azure subscription')
 
-      const stdout = await this.executeCommand(
-        ['account', 'show', '--output', 'json'],
-        options
+      // Ejecutar comando con reintentos automáticos
+      const stdout = await withRetry(
+        () => this.executeCommand(['account', 'show', '--output', 'json'], options),
+        {
+          maxRetries: 3,
+          initialDelay: 2000,
+          shouldRetry: RetryPredicates.isAzureTransientError,
+          onRetry: (error, attempt, delay) => {
+            azureLogger.warn(
+              { attempt, nextRetryIn: `${delay}ms` },
+              'Retrying Azure subscription request'
+            )
+          },
+        }
       )
 
       const parseResult = parseJsonSafe(stdout, AzureAccountSchema)
@@ -178,9 +190,20 @@ export class AzureService {
         }
       }`
 
-      const stdout = await this.executeCommand(
-        ['resource', 'list', '--query', query, '--output', 'json'],
-        options
+      // Ejecutar comando con reintentos automáticos
+      const stdout = await withRetry(
+        () => this.executeCommand(['resource', 'list', '--query', query, '--output', 'json'], options),
+        {
+          maxRetries: 3,
+          initialDelay: 2000,
+          shouldRetry: RetryPredicates.isAzureTransientError,
+          onRetry: (error, attempt, delay) => {
+            azureLogger.warn(
+              { attempt, nextRetryIn: `${delay}ms` },
+              'Retrying Azure resources request'
+            )
+          },
+        }
       )
 
       const parseResult = parseJsonSafe(stdout, z.array(AzureResourceRawSchema))
