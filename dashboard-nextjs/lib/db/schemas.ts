@@ -49,7 +49,7 @@ export const ResourceDBSchema = z.object({
 
   // Tags
   tags: z.array(z.string()),
-  rawTags: z.record(z.string()).optional(),
+  rawTags: z.record(z.string(), z.unknown()).optional(),
 
   // Ambiente
   environment: z.enum(['production', 'development', 'unknown']),

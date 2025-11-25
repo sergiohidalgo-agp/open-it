@@ -85,7 +85,7 @@ export function dbResourceToAzureResource(dbResource: ResourceDB): AzureResource
     powerState: dbResource.powerState,
     sku: dbResource.sku,
     tags: dbResource.tags,
-    rawTags: dbResource.rawTags,
+    rawTags: dbResource.rawTags as Record<string, string> | undefined,
     environment: dbResource.environment,
     portalUrl: dbResource.portalUrl,
     kind: dbResource.kind,
