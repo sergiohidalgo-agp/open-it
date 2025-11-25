@@ -3,98 +3,62 @@
  * OpenIT Dashboard
  *
  * GET /api/azure/resources
- * Retorna lista de recursos Azure procesados con lógica de negocio
+ * Lee recursos SOLO desde Cosmos DB (seguro, sin exponer tokens)
  */
 
 import { NextResponse } from 'next/server'
-import { readFile } from 'fs/promises'
-import { join } from 'path'
-import type {
-  AzureRawData,
-  AzureResourcesResponse,
-} from '@/lib/types/azure'
-import { transformAzureResources } from '@/lib/azure/transformer'
+import { getAllResources, getLastSyncHistory } from '@/lib/db/queries'
+import type { AzureResourcesResponse } from '@/lib/types/azure'
+
+export const dynamic = 'force-dynamic'
 
 /**
  * GET /api/azure/resources
- * Lee el archivo azure-raw.json, aplica transformaciones y retorna recursos procesados
+ * Lee recursos desde Cosmos DB de forma segura
  */
 export async function GET() {
   try {
-    // Ruta al archivo JSON raw
-    const dataPath = join(process.cwd(), 'data', 'azure-raw.json')
+    // Leer recursos desde Cosmos DB
+    const dbResources = await getAllResources()
 
-    // Leer el archivo
-    const fileContent = await readFile(dataPath, 'utf-8')
-    const rawData: AzureRawData = JSON.parse(fileContent)
-
-    // Transformar recursos con lógica de negocio
-    const processedResources = transformAzureResources(
-      rawData.resources,
-      rawData.subscription
-    )
+    // Obtener última sincronización
+    const lastSync = await getLastSyncHistory()
 
     // Obtener lista única de suscripciones
     const subscriptions = Array.from(
-      new Set(processedResources.map((r) => r.subscription))
+      new Set(dbResources.map((r) => r.subscription))
     )
 
     // Preparar respuesta
     const response: AzureResourcesResponse = {
       success: true,
-      data: processedResources,
+      data: dbResources,
       metadata: {
-        total: processedResources.length,
+        total: dbResources.length,
         subscriptions,
-        lastUpdated: rawData.timestamp,
+        lastUpdated: lastSync?.timestamp || new Date().toISOString(),
+        lastSyncStatus: lastSync?.status,
       },
     }
 
     return NextResponse.json(response)
   } catch (error) {
-    // Manejar diferentes tipos de errores
     if (error instanceof Error) {
-      // Archivo no encontrado
-      if ('code' in error && error.code === 'ENOENT') {
-        return NextResponse.json(
-          {
-            success: false,
-            data: [],
-            error: 'Archivo de datos no encontrado. Ejecuta el script de recolección: ./scripts/fetch-azure-resources.sh',
-          } as AzureResourcesResponse,
-          { status: 404 }
-        )
-      }
-
-      // Error de parseo JSON
-      if (error instanceof SyntaxError) {
-        return NextResponse.json(
-          {
-            success: false,
-            data: [],
-            error: 'Error al parsear datos de Azure. El archivo JSON está corrupto.',
-          } as AzureResourcesResponse,
-          { status: 500 }
-        )
-      }
-
-      // Otros errores
       return NextResponse.json(
         {
           success: false,
           data: [],
-          error: `Error interno: ${error.message}`,
+          error: `Error al leer desde Cosmos DB: ${error.message}`,
         } as AzureResourcesResponse,
         { status: 500 }
       )
     }
 
-    // Error desconocido
     return NextResponse.json(
       {
         success: false,
         data: [],
-        error: 'Error desconocido al procesar recursos',
+        error: 'Error desconocido al leer recursos',
       } as AzureResourcesResponse,
       { status: 500 }
     )
