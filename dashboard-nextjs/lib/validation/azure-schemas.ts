@@ -37,7 +37,7 @@ export const AzureResourceRawSchema = z.object({
   name: z.string(),
   type: z.string(),
   location: z.string(),
-  tags: z.record(z.string()).optional().nullable(),
+  tags: z.record(z.string(), z.unknown()).optional().nullable(),
   resourceGroup: z.string().optional(),
   kind: z.string().optional().nullable(),
   managedBy: z.string().optional().nullable(),
@@ -118,7 +118,7 @@ export function parseJsonSafe<T>(
     } else {
       return {
         success: false,
-        error: `Validation failed: ${result.error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join(', ')}`
+        error: `Validation failed: ${result.error.issues.map(e => `${e.path.join('.')}: ${e.message}`).join(', ')}`
       }
     }
   } catch (error) {
